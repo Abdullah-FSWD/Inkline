@@ -1,5 +1,8 @@
 node_modules/
 dist/
 .env
+.agents
+.claude
+.windsurf
 
 /src/generated/prisma

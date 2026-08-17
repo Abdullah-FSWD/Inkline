@@ -41,3 +41,12 @@ yarn-error.log*
 next-env.d.ts
 
 dist/
+
+.agents
+.claude
+.windsurf
+
+AGENTS.md
+CLAUDE.md
+
+PROGRESS.md
