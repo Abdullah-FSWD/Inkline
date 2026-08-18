@@ -18,13 +18,14 @@ afterEach(async () => {
 });
 
 describe("POST /auth/signup", () => {
-  it("creates a new user and returns it without the password hash", async () => {
+  it("creates a new user, sets a session cookie, and returns it without the password hash", async () => {
     const email = uniqueEmail();
     const res = await request(app).post("/auth/signup").send({ email, password: "correct-horse" });
 
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ email });
     expect(res.body.passwordHash).toBeUndefined();
+    expect(res.headers["set-cookie"]?.[0]).toMatch(/^session=.+HttpOnly/);
 
     const stored = await UserModel.findOne({ email });
     expect(stored).not.toBeNull();
@@ -83,6 +84,43 @@ describe("POST /auth/signup", () => {
       .set("Content-Type", "application/json")
       .send("{not valid json");
 
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /auth/login", () => {
+  it("logs in with correct credentials and sets a session cookie", async () => {
+    const email = uniqueEmail();
+    await request(app).post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await request(app).post("/auth/login").send({ email, password: "correct-horse" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ email });
+    expect(res.headers["set-cookie"]?.[0]).toMatch(/^session=.+HttpOnly/);
+  });
+
+  it("rejects an incorrect password with a generic error", async () => {
+    const email = uniqueEmail();
+    await request(app).post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await request(app).post("/auth/login").send({ email, password: "wrong-password" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Invalid email or password.");
+  });
+
+  it("rejects a nonexistent email with the same generic error as a wrong password", async () => {
+    const res = await request(app)
+      .post("/auth/login")
+      .send({ email: uniqueEmail(), password: "correct-horse" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Invalid email or password.");
+  });
+
+  it("rejects a login attempt with missing fields", async () => {
+    const res = await request(app).post("/auth/login").send({ email: "a@example.com" });
     expect(res.status).toBe(400);
   });
 });
