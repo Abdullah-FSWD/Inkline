@@ -2,6 +2,7 @@ import { Router, type Response } from "express";
 import bcrypt from "bcryptjs";
 import { UserModel } from "../models/User.js";
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "../lib/session.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -77,5 +78,14 @@ authRouter.post("/login", async (req, res) => {
   }
 
   setSessionCookie(res, user._id.toString());
+  res.status(200).json({ id: user._id.toString(), email: user.email });
+});
+
+authRouter.get("/me", requireAuth, async (req, res) => {
+  const user = await UserModel.findById(req.userId);
+  if (!user) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
   res.status(200).json({ id: user._id.toString(), email: user.email });
 });

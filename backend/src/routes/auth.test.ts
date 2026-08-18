@@ -124,3 +124,26 @@ describe("POST /auth/login", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("GET /auth/me", () => {
+  it("returns the current user when the session cookie is valid", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent.get("/auth/me");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ email });
+  });
+
+  it("rejects a request with no session cookie", async () => {
+    const res = await request(app).get("/auth/me");
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a request with a garbage session cookie", async () => {
+    const res = await request(app).get("/auth/me").set("Cookie", "session=not-a-real-token");
+    expect(res.status).toBe(401);
+  });
+});
