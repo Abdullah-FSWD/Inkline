@@ -5,5 +5,7 @@ export default defineConfig({
     environment: "node",
     globals: true,
     pool: "threads",
+    fileParallelism: false,
+    setupFiles: ["./src/test-setup.ts"],
   },
 });
