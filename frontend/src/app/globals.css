@@ -1,26 +1,32 @@
 @import "tailwindcss";
 
+/*
+  60-30-10 palette:
+  60% dominant  -> --background (page canvas)
+  30% secondary -> --surface (header, cards, borders, muted text sit on/near this)
+  10% accent    -> --accent (CTAs, links, active states only)
+*/
 :root {
-  --background: #f7f5f0;
-  --foreground: #1c1a17;
-  --card: #ffffff;
-  --card-border: #e7e2d8;
-  --muted-foreground: #6b6255;
-  --accent: #92400e;
-  --accent-hover: #78350f;
+  --background: #f6f3ec;
+  --foreground: #221e17;
+  --surface: #ebe5d6;
+  --surface-border: #dcd3bd;
+  --muted-foreground: #776c58;
+  --accent: #b45309;
+  --accent-hover: #92400e;
   --accent-foreground: #fffaf0;
-  --danger: #dc2626;
-  --danger-bg: #fef2f2;
+  --danger: #b91c1c;
+  --danger-bg: #fbe9e7;
   --input-bg: #ffffff;
-  --input-border: #d6d0c4;
-  --ring: #92400e;
+  --input-border: #d6cdb5;
+  --ring: #b45309;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-border: var(--card-border);
+  --color-surface: var(--surface);
+  --color-surface-border: var(--surface-border);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
@@ -36,19 +42,19 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #15130f;
-    --foreground: #f2ede4;
-    --card: #1e1c17;
-    --card-border: #322d24;
-    --muted-foreground: #a89e8c;
-    --accent: #f59e0b;
-    --accent-hover: #fbbf24;
-    --accent-foreground: #1c1a17;
-    --danger: #f87171;
-    --danger-bg: #2a1616;
-    --input-bg: #1e1c17;
-    --input-border: #3a352b;
-    --ring: #f59e0b;
+    --background: #26241d;
+    --foreground: #f1ecdc;
+    --surface: #322f25;
+    --surface-border: #46402f;
+    --muted-foreground: #b3a68b;
+    --accent: #f0a93a;
+    --accent-hover: #f7bb5c;
+    --accent-foreground: #221e17;
+    --danger: #f2867d;
+    --danger-bg: #3a2620;
+    --input-bg: #2c2a21;
+    --input-border: #453f2d;
+    --ring: #f0a93a;
   }
 }
 

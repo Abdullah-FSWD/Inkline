@@ -11,7 +11,7 @@ export default function SignupPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: "easeOut" }}
-        className="w-full max-w-sm rounded-2xl border border-card-border bg-card p-8 shadow-sm"
+        className="w-full max-w-sm rounded-2xl border border-surface-border bg-surface p-8 shadow-sm"
       >
         <div className="mb-6 flex flex-col items-center text-center">
           <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-accent/10 text-accent">

@@ -51,7 +51,7 @@ export default function Home() {
         <motion.div variants={item} className="mt-8 flex items-center gap-6">
           {features.map(({ icon: Icon, label }) => (
             <div key={label} className="flex flex-col items-center gap-1.5 text-muted-foreground">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full border border-card-border bg-card">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full border border-surface-border bg-surface">
                 <Icon size={16} strokeWidth={1.75} />
               </div>
               <span className="text-xs">{label}</span>
