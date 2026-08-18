@@ -19,18 +19,20 @@ export function SignupForm() {
     e.preventDefault();
     setError(null);
 
-    if (!EMAIL_RE.test(email)) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!EMAIL_RE.test(normalizedEmail)) {
       setError("Enter a valid email address.");
       return;
     }
-    if (password.length < MIN_PASSWORD_LENGTH) {
+    if (password.trim().length < MIN_PASSWORD_LENGTH) {
       setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
 
     setSubmitting(true);
     try {
-      await signup(email, password);
+      await signup(normalizedEmail, password);
       setSuccess(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");

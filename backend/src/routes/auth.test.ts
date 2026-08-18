@@ -49,4 +49,40 @@ describe("POST /auth/signup", () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/already exists/i);
   });
+
+  it("rejects a duplicate email that only differs by case", async () => {
+    const email = uniqueEmail();
+    await request(app).post("/auth/signup").send({ email, password: "correct-horse" });
+    const res = await request(app)
+      .post("/auth/signup")
+      .send({ email: email.toUpperCase(), password: "another-password" });
+
+    expect(res.status).toBe(409);
+  });
+
+  it("trims and lowercases the email before storing", async () => {
+    const email = uniqueEmail();
+    const padded = `  ${email.toUpperCase()}  `;
+    const res = await request(app).post("/auth/signup").send({ email: padded, password: "correct-horse" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.email).toBe(email);
+  });
+
+  it("rejects a whitespace-only password", async () => {
+    const res = await request(app)
+      .post("/auth/signup")
+      .send({ email: uniqueEmail(), password: "        " });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a malformed JSON body", async () => {
+    const res = await request(app)
+      .post("/auth/signup")
+      .set("Content-Type", "application/json")
+      .send("{not valid json");
+
+    expect(res.status).toBe(400);
+  });
 });

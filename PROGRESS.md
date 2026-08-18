@@ -20,10 +20,11 @@ Work one sub-task at a time, in Suggested Build Sequence order (not document ord
 - [x] .env / .env.example for backend, gitignored (MONGODB_URI, PORT, JWT_SECRET placeholder). Frontend has no server secrets yet — its existing .env* gitignore rule covers future needs.
 
 ## Stage 1 — Accounts & Authentication (Epic 0)
-- [ ] US-0.1 — Sign up (User model, POST /auth/signup, sign-up form, dup-email/validation errors)
+- [ ] US-0.1 — Sign up (User model, POST /auth/signup, sign-up form, dup-email/validation errors). All 4 sub-tasks done; story-level AC "logs the user in immediately" still pending on US-0.2's session mechanism, so leaving unchecked until that's wired in.
   - [x] Sub-task 1: Design the User model (email, passwordHash, createdAt) — as a Mongoose schema (`backend/src/models/User.ts`), not Prisma (see Decisions log)
   - [x] Sub-task 2: POST /auth/signup endpoint — validates email format + min 8-char password, hashes with bcryptjs, creates the user, rejects duplicate email (fast-path findOne + unique-index race fallback). Does not yet issue a session (deferred to US-0.2, which decides the session mechanism); acceptance criterion "logs the user in immediately" will be satisfied once that's wired in.
   - [x] Sub-task 3: Next.js sign-up page/form (`frontend/src/app/signup/`) wired to the endpoint via `frontend/src/lib/api.ts`. Client-side validation mirrors backend rules for instant feedback; backend response is authoritative. On success shows a confirmation message (no redirect yet — no session exists until US-0.2/US-0.3 land, so there's nowhere to send the user).
+  - [x] Sub-task 4: Tightened validation/duplicate-email handling on both ends. Fixed a real bug — email regex was validated *before* trimming, so a legitimately-formatted email with leading/trailing whitespace was wrongly rejected as invalid; now trims+lowercases first, then validates. Password check now rejects whitespace-only/padded-to-length passwords (`.trim().length`). Backend now returns 400 (not 500) for malformed JSON bodies. Added 5 new backend tests: case-insensitive duplicate rejection, trim+lowercase-before-store, whitespace-only password rejection, malformed JSON body. 9/9 backend tests pass, 5/5 frontend tests pass.
 - [ ] US-0.2 — Log in (POST /auth/login, session mechanism decision, login form, generic error)
 - [ ] US-0.3 — Log out (POST /auth/logout, logout action, route protection)
 - [ ] US-0.4 — Per-user data isolation (auth middleware, ownership checks, cross-user access tests)

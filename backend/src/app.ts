@@ -15,6 +15,10 @@ export function createApp() {
   app.use("/auth", authRouter);
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+    if (err instanceof SyntaxError && "status" in err && err.status === 400 && "body" in err) {
+      res.status(400).json({ error: "Malformed JSON body." });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: "Internal server error." });
   };
