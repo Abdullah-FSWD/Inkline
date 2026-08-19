@@ -121,3 +121,12 @@ export function listDocuments(): Promise<DocumentSummary[]> {
 export function getDocument(id: string): Promise<DocumentSummary> {
   return getJson(`/documents/${id}`);
 }
+
+export async function deleteDocument(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/documents/${id}`, { method: "DELETE", credentials: "include" });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Something went wrong.", res.status);
+  }
+}

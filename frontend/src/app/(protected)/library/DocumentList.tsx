@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { FileText, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { FileText, Loader2, Trash2, Check, X } from "lucide-react";
 import type { DocumentSummary } from "@/lib/api";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -21,7 +22,7 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function DocumentRow({ doc }: { doc: DocumentSummary }) {
+function DocumentInfo({ doc }: { doc: DocumentSummary }) {
   return (
     <>
       <FileText size={18} className="shrink-0 text-accent" strokeWidth={1.75} />
@@ -29,14 +30,19 @@ function DocumentRow({ doc }: { doc: DocumentSummary }) {
         <p className="truncate text-sm font-medium text-foreground">{doc.title}</p>
         <p className="text-xs text-muted-foreground">Updated {formatDate(doc.updatedAt)}</p>
       </div>
-      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_CLASS[doc.status] ?? STATUS_CLASS.processing}`}>
-        {STATUS_LABEL[doc.status] ?? doc.status}
-      </span>
     </>
   );
 }
 
-export function DocumentList({ documents, loading }: { documents: DocumentSummary[]; loading: boolean }) {
+interface DocumentListProps {
+  documents: DocumentSummary[];
+  loading: boolean;
+  onDelete?: (id: string) => void;
+}
+
+export function DocumentList({ documents, loading, onDelete }: DocumentListProps) {
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
@@ -58,16 +64,67 @@ export function DocumentList({ documents, loading }: { documents: DocumentSummar
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, delay: index * 0.03 }}
+          className="flex items-center gap-3 px-4 py-3"
         >
           {doc.status === "ready" ? (
-            <Link href={`/documents/${doc.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/5">
-              <DocumentRow doc={doc} />
+            <Link href={`/documents/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+              <DocumentInfo doc={doc} />
             </Link>
           ) : (
-            <div className="flex items-center gap-3 px-4 py-3">
-              <DocumentRow doc={doc} />
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <DocumentInfo doc={doc} />
             </div>
           )}
+
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_CLASS[doc.status] ?? STATUS_CLASS.processing}`}>
+            {STATUS_LABEL[doc.status] ?? doc.status}
+          </span>
+
+          <AnimatePresence initial={false}>
+            {confirmingId === doc.id ? (
+              <motion.div
+                key="confirm"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex shrink-0 items-center gap-1.5"
+              >
+                <span className="text-xs text-muted-foreground">Delete?</span>
+                <button
+                  type="button"
+                  aria-label={`Confirm delete ${doc.title}`}
+                  onClick={() => {
+                    setConfirmingId(null);
+                    onDelete?.(doc.id);
+                  }}
+                  className="rounded-full p-1 text-danger hover:bg-danger-bg"
+                >
+                  <Check size={14} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Cancel delete"
+                  onClick={() => setConfirmingId(null)}
+                  className="rounded-full p-1 text-muted-foreground hover:bg-input-border"
+                >
+                  <X size={14} />
+                </button>
+              </motion.div>
+            ) : (
+              <motion.button
+                key="trigger"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                type="button"
+                aria-label={`Delete ${doc.title}`}
+                onClick={() => setConfirmingId(doc.id)}
+                className="shrink-0 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-danger-bg hover:text-danger"
+              >
+                <Trash2 size={15} />
+              </motion.button>
+            )}
+          </AnimatePresence>
         </motion.li>
       ))}
     </ul>

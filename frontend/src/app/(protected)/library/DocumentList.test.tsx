@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import { DocumentList } from "./DocumentList";
 import type { DocumentSummary } from "@/lib/api";
 
@@ -48,5 +49,29 @@ describe("DocumentList", () => {
   it("does not make a non-ready document clickable", () => {
     render(<DocumentList documents={[doc({ status: "processing" })]} loading={false} />);
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("requires a confirm step before calling onDelete", async () => {
+    const onDelete = vi.fn();
+    const user = userEvent.setup();
+    render(<DocumentList documents={[doc({ id: "7", title: "Report" })]} loading={false} onDelete={onDelete} />);
+
+    await user.click(screen.getByRole("button", { name: "Delete Report" }));
+    expect(onDelete).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /confirm delete report/i }));
+    expect(onDelete).toHaveBeenCalledWith("7");
+  });
+
+  it("cancels the delete confirmation without calling onDelete", async () => {
+    const onDelete = vi.fn();
+    const user = userEvent.setup();
+    render(<DocumentList documents={[doc({ id: "7", title: "Report" })]} loading={false} onDelete={onDelete} />);
+
+    await user.click(screen.getByRole("button", { name: "Delete Report" }));
+    await user.click(screen.getByRole("button", { name: /cancel delete/i }));
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Delete Report" })).toBeInTheDocument();
   });
 });
