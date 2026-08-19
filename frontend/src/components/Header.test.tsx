@@ -21,7 +21,7 @@ beforeEach(() => {
 
 describe("Header", () => {
   it("shows nothing in the nav while the session is still loading", () => {
-    mockedUseAuth.mockReturnValue({ user: null, loading: true, refresh: vi.fn(), logout: vi.fn() });
+    mockedUseAuth.mockReturnValue({ user: null, loading: true, sessionExpired: false, refresh: vi.fn(), logout: vi.fn() });
     render(<Header />);
 
     expect(screen.queryByRole("link", { name: /log in/i })).not.toBeInTheDocument();
@@ -29,7 +29,7 @@ describe("Header", () => {
   });
 
   it("shows Log in / Sign up when logged out", () => {
-    mockedUseAuth.mockReturnValue({ user: null, loading: false, refresh: vi.fn(), logout: vi.fn() });
+    mockedUseAuth.mockReturnValue({ user: null, loading: false, sessionExpired: false, refresh: vi.fn(), logout: vi.fn() });
     render(<Header />);
 
     expect(screen.getByRole("link", { name: /log in/i })).toBeInTheDocument();
@@ -38,7 +38,13 @@ describe("Header", () => {
 
   it("shows the user's email and a Log out action when logged in, which calls logout and redirects home", async () => {
     const logout = vi.fn().mockResolvedValue(undefined);
-    mockedUseAuth.mockReturnValue({ user: { id: "1", email: "a@example.com" }, loading: false, refresh: vi.fn(), logout });
+    mockedUseAuth.mockReturnValue({
+      user: { id: "1", email: "a@example.com" },
+      loading: false,
+      sessionExpired: false,
+      refresh: vi.fn(),
+      logout,
+    });
     const user = userEvent.setup();
     render(<Header />);
 

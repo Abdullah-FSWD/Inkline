@@ -1,9 +1,11 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { BookOpen } from "lucide-react";
 import { LoginForm } from "./LoginForm";
+import { ExpiredNotice } from "./ExpiredNotice";
 
 export default function LoginPage() {
   return (
@@ -21,6 +23,9 @@ export default function LoginPage() {
           <h1 className="text-xl font-semibold text-foreground">Welcome back</h1>
           <p className="mt-1 text-sm text-muted-foreground">Log in to your library and annotations.</p>
         </div>
+        <Suspense fallback={null}>
+          <ExpiredNotice />
+        </Suspense>
         <LoginForm />
         <p className="mt-6 text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{" "}

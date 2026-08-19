@@ -20,7 +20,7 @@ beforeEach(() => {
 
 describe("ProtectedRoute", () => {
   it("renders nothing and does not redirect while the session is still loading", () => {
-    mockedUseAuth.mockReturnValue({ user: null, loading: true, refresh: vi.fn(), logout: vi.fn() });
+    mockedUseAuth.mockReturnValue({ user: null, loading: true, sessionExpired: false, refresh: vi.fn(), logout: vi.fn() });
     render(
       <ProtectedRoute>
         <p>secret content</p>
@@ -32,7 +32,7 @@ describe("ProtectedRoute", () => {
   });
 
   it("redirects to /login and renders nothing when logged out", () => {
-    mockedUseAuth.mockReturnValue({ user: null, loading: false, refresh: vi.fn(), logout: vi.fn() });
+    mockedUseAuth.mockReturnValue({ user: null, loading: false, sessionExpired: false, refresh: vi.fn(), logout: vi.fn() });
     render(
       <ProtectedRoute>
         <p>secret content</p>
@@ -43,10 +43,22 @@ describe("ProtectedRoute", () => {
     expect(replace).toHaveBeenCalledWith("/login");
   });
 
+  it("redirects to /login?expired=1 when the session had expired", () => {
+    mockedUseAuth.mockReturnValue({ user: null, loading: false, sessionExpired: true, refresh: vi.fn(), logout: vi.fn() });
+    render(
+      <ProtectedRoute>
+        <p>secret content</p>
+      </ProtectedRoute>
+    );
+
+    expect(replace).toHaveBeenCalledWith("/login?expired=1");
+  });
+
   it("renders the children and does not redirect when logged in", () => {
     mockedUseAuth.mockReturnValue({
       user: { id: "1", email: "a@example.com" },
       loading: false,
+      sessionExpired: false,
       refresh: vi.fn(),
       logout: vi.fn(),
     });

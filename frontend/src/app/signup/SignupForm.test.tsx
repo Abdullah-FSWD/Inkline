@@ -22,6 +22,7 @@ beforeEach(() => {
   mockedUseAuth.mockReturnValue({
     user: null,
     loading: false,
+    sessionExpired: false,
     refresh: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn().mockResolvedValue(undefined),
   });

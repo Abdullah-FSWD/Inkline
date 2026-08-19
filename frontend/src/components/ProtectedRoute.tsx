@@ -5,14 +5,14 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, sessionExpired } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!loading && !user) {
-      router.replace("/login");
+      router.replace(sessionExpired ? "/login?expired=1" : "/login");
     }
-  }, [loading, user, router]);
+  }, [loading, user, sessionExpired, router]);
 
   if (loading || !user) return null;
 
