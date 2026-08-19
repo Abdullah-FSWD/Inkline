@@ -166,6 +166,19 @@ describe("GET /auth/me", () => {
     const res = await request(app).get("/auth/me").set("Cookie", "session=not-a-real-token");
     expect(res.status).toBe(401);
   });
+
+  it("rejects a still-valid token whose account no longer exists", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    // simulate the account being deleted after the session token was issued;
+    // the JWT itself is still cryptographically valid and unexpired
+    await UserModel.deleteOne({ email });
+
+    const res = await agent.get("/auth/me");
+    expect(res.status).toBe(401);
+  });
 });
 
 describe("POST /auth/logout", () => {

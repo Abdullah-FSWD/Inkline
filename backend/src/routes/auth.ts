@@ -99,11 +99,6 @@ authRouter.post("/logout", (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
-authRouter.get("/me", requireAuth, async (req, res) => {
-  const user = await UserModel.findById(req.userId);
-  if (!user) {
-    res.status(401).json({ error: "Authentication required." });
-    return;
-  }
-  res.status(200).json({ id: user._id.toString(), email: user.email });
+authRouter.get("/me", requireAuth, (req, res) => {
+  res.status(200).json(req.user);
 });
