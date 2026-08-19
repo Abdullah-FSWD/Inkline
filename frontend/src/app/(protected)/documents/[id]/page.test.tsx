@@ -12,6 +12,12 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "42" }),
 }));
 
+// PdfViewer's own rendering (pdf.js, canvas) is covered by its own test file with
+// pdfjs-dist mocked; here we only need to confirm the page hands it the right file URL.
+vi.mock("./PdfViewer", () => ({
+  PdfViewer: ({ fileUrl }: { fileUrl: string }) => <div data-testid="pdf-viewer">{fileUrl}</div>,
+}));
+
 const mockedGetDocument = vi.mocked(getDocument);
 
 beforeEach(() => {
@@ -32,7 +38,7 @@ describe("DocumentPage", () => {
     render(<DocumentPage />);
 
     expect(await screen.findByText("My Report")).toBeInTheDocument();
-    expect(screen.getByText(/reading view is coming soon/i)).toBeInTheDocument();
+    expect(screen.getByTestId("pdf-viewer")).toHaveTextContent("/documents/42/file");
     expect(mockedGetDocument).toHaveBeenCalledWith("42");
   });
 
@@ -49,7 +55,7 @@ describe("DocumentPage", () => {
     render(<DocumentPage />);
 
     expect(await screen.findByRole("status")).toHaveTextContent(/still processing/i);
-    expect(screen.queryByText(/reading view is coming soon/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pdf-viewer")).not.toBeInTheDocument();
   });
 
   it("guards against opening a failed document, showing status instead of the reader", async () => {
@@ -65,7 +71,7 @@ describe("DocumentPage", () => {
     render(<DocumentPage />);
 
     expect(await screen.findByRole("status")).toHaveTextContent(/failed to process/i);
-    expect(screen.queryByText(/reading view is coming soon/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pdf-viewer")).not.toBeInTheDocument();
   });
 
   it("shows a not-found message for a 404", async () => {

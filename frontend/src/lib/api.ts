@@ -122,6 +122,10 @@ export function getDocument(id: string): Promise<DocumentSummary> {
   return getJson(`/documents/${id}`);
 }
 
+export function getDocumentFileUrl(id: string): string {
+  return `${API_URL}/documents/${id}/file`;
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   const res = await fetch(`${API_URL}/documents/${id}`, { method: "DELETE", credentials: "include" });
 

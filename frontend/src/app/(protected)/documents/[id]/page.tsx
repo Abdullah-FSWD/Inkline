@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Loader2, FileText, ArrowLeft, TriangleAlert } from "lucide-react";
-import { getDocument, ApiError, type DocumentSummary } from "@/lib/api";
+import { Loader2, ArrowLeft, TriangleAlert } from "lucide-react";
+import { getDocument, getDocumentFileUrl, ApiError, type DocumentSummary } from "@/lib/api";
+import { PdfViewer } from "./PdfViewer";
 
 export default function DocumentPage() {
   const { id } = useParams<{ id: string }>();
@@ -90,11 +91,8 @@ export default function DocumentPage() {
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
       {backLink}
-      <div className="flex flex-col items-center gap-3 rounded-2xl border border-surface-border bg-surface px-6 py-16 text-center">
-        <FileText size={32} className="text-accent" strokeWidth={1.75} />
-        <h1 className="text-lg font-semibold text-foreground">{doc.title}</h1>
-        <p className="text-sm text-muted-foreground">The reading view is coming soon.</p>
-      </div>
+      <h1 className="mb-4 text-lg font-semibold text-foreground">{doc.title}</h1>
+      <PdfViewer fileUrl={getDocumentFileUrl(doc.id)} />
     </main>
   );
 }
