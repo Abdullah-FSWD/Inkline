@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { PdfViewer } from "./PdfViewer";
 
@@ -90,5 +91,54 @@ describe("PdfViewer", () => {
 
     rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" />);
     await vi.waitFor(() => expect(getDocument).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not show navigation controls for a single-page document", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+    expect(screen.queryByRole("button", { name: /next page/i })).not.toBeInTheDocument();
+  });
+
+  it("navigates forward and back through a multi-page document", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+    expect(screen.getByRole("button", { name: /previous page/i })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /next page/i }));
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+
+    await user.click(screen.getByRole("button", { name: /next page/i }));
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(3));
+    expect(screen.getByRole("button", { name: /next page/i })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /previous page/i }));
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+  });
+
+  it("resets to page 1 when switching to a different document", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+    const user = userEvent.setup();
+
+    const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+    await user.click(screen.getByRole("button", { name: /next page/i }));
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+
+    getPage.mockClear();
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 4 }) });
+    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" />);
+
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+    expect(getPage).not.toHaveBeenCalledWith(2);
   });
 });

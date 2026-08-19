@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDocumentProxy = any;
 
@@ -14,6 +14,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdf, setPdf] = useState<PdfDocumentProxy | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [numPages, setNumPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +26,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
     async function load() {
       setPdf(null);
       setCurrentPage(1);
+      setNumPages(1);
       setError(null);
 
       try {
@@ -41,6 +43,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
         if (cancelled) return;
 
         setPdf(loaded);
+        setNumPages(loaded.numPages);
         onLoaded?.(loaded.numPages);
       } catch (err) {
         if (!cancelled) setError("Couldn't load this PDF.");
@@ -116,6 +119,29 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
         </div>
       )}
       <canvas ref={canvasRef} className={`rounded-lg shadow-md ${loading ? "hidden" : ""}`} />
+
+      {!loading && numPages > 1 && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            aria-label="Previous page"
+            disabled={currentPage <= 1}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            type="button"
+            aria-label="Next page"
+            disabled={currentPage >= numPages}
+            onClick={() => setCurrentPage((p) => Math.min(numPages, p + 1))}
+            className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
