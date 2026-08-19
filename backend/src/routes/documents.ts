@@ -14,6 +14,21 @@ export const documentsRouter = Router();
 
 documentsRouter.use(requireAuth);
 
+documentsRouter.get("/", async (req, res) => {
+  const documents = await DocumentModel.find({ ownerId: req.userId }).sort({ updatedAt: -1 });
+
+  res.status(200).json(
+    documents.map((document) => ({
+      id: document._id.toString(),
+      title: document.title,
+      sourceType: document.sourceType,
+      status: document.status,
+      updatedAt: document.updatedAt,
+      createdAt: document.createdAt,
+    }))
+  );
+});
+
 documentsRouter.post("/upload", upload.single("file"), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: "A file is required." });

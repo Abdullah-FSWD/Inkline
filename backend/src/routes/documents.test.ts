@@ -127,3 +127,44 @@ describe("POST /documents/upload", () => {
     expect(res.body.error).toMatch(/too large/i);
   }, 20000);
 });
+
+describe("GET /documents", () => {
+  it("rejects an unauthenticated request", async () => {
+    const res = await request(app).get("/documents");
+    expect(res.status).toBe(401);
+  });
+
+  it("lists only the current user's documents, newest-updated first", async () => {
+    const emailA = uniqueEmail();
+    const agentA = request.agent(app);
+    await agentA.post("/auth/signup").send({ email: emailA, password: "correct-horse" });
+    await agentA.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-a1.pdf");
+    await agentA.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-a2.pdf");
+
+    const emailB = uniqueEmail();
+    const agentB = request.agent(app);
+    await agentB.post("/auth/signup").send({ email: emailB, password: "correct-horse" });
+    await agentB.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-b1.pdf");
+
+    const resA = await agentA.get("/documents");
+    expect(resA.status).toBe(200);
+    expect(resA.body).toHaveLength(2);
+    expect(resA.body.map((d: { title: string }) => d.title).sort()).toEqual(["documents-test-a1", "documents-test-a2"]);
+    expect(resA.body[0]).toMatchObject({ sourceType: "pdf", status: "ready" });
+    expect(resA.body[0].updatedAt).toBeDefined();
+
+    const resB = await agentB.get("/documents");
+    expect(resB.body).toHaveLength(1);
+    expect(resB.body[0].title).toBe("documents-test-b1");
+  });
+
+  it("returns an empty list for a user with no documents", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent.get("/documents");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+});
