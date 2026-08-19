@@ -50,7 +50,7 @@ describe("POST /documents/upload", () => {
     expect(stored!.fileId).toBeDefined();
   });
 
-  it("rejects a non-PDF file", async () => {
+  it("rejects an HTML upload with a distinct 'coming soon' message, not the generic one", async () => {
     const email = uniqueEmail();
     const agent = request.agent(app);
     await agent.post("/auth/signup").send({ email, password: "correct-horse" });
@@ -60,7 +60,35 @@ describe("POST /documents/upload", () => {
       .attach("file", Buffer.from("<html></html>"), "documents-test-3.html");
 
     expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/coming soon/i);
     const stored = await DocumentModel.findOne({ originalFilename: "documents-test-3.html" });
+    expect(stored).toBeNull();
+  });
+
+  it("rejects an unsupported extension with the generic message", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent
+      .post("/documents/upload")
+      .attach("file", Buffer.from("binary data"), "documents-test-4.docx");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/unsupported file type/i);
+  });
+
+  it("rejects a file whose content doesn't match its .pdf extension (spoofed)", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent
+      .post("/documents/upload")
+      .attach("file", Buffer.from("MZ this is not really a pdf"), "documents-test-5.pdf");
+
+    expect(res.status).toBe(400);
+    const stored = await DocumentModel.findOne({ originalFilename: "documents-test-5.pdf" });
     expect(stored).toBeNull();
   });
 
