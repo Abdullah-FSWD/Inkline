@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { BookOpen } from "lucide-react";
-import { SignupForm } from "./SignupForm";
+import { LoginForm } from "./LoginForm";
 
-export default function SignupPage() {
+export default function LoginPage() {
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-16">
       <motion.div
@@ -18,14 +18,14 @@ export default function SignupPage() {
           <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-accent/10 text-accent">
             <BookOpen size={22} strokeWidth={1.75} />
           </div>
-          <h1 className="text-xl font-semibold text-foreground">Create your account</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Your library and annotations will follow you anywhere.</p>
+          <h1 className="text-xl font-semibold text-foreground">Welcome back</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Log in to your library and annotations.</p>
         </div>
-        <SignupForm />
+        <LoginForm />
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          Already have an account?{" "}
-          <Link href="/login" className="font-medium text-accent hover:text-accent-hover">
-            Log in
+          Don&apos;t have an account?{" "}
+          <Link href="/signup" className="font-medium text-accent hover:text-accent-hover">
+            Sign up
           </Link>
         </p>
       </motion.div>

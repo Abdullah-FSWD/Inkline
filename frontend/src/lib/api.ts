@@ -7,11 +7,12 @@ export class ApiError extends Error {
   }
 }
 
-export async function signup(email: string, password: string): Promise<{ id: string; email: string }> {
-  const res = await fetch(`${API_URL}/auth/signup`, {
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    credentials: "include",
+    body: JSON.stringify(body),
   });
 
   const data = await res.json();
@@ -21,4 +22,12 @@ export async function signup(email: string, password: string): Promise<{ id: str
   }
 
   return data;
+}
+
+export function signup(email: string, password: string): Promise<{ id: string; email: string }> {
+  return postJson("/auth/signup", { email, password });
+}
+
+export function login(email: string, password: string): Promise<{ id: string; email: string }> {
+  return postJson("/auth/login", { email, password });
 }
