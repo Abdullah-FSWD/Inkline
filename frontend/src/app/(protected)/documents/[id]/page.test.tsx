@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 
 describe("DocumentPage", () => {
-  it("fetches the document by id from the route params and shows its title", async () => {
+  it("fetches the document by id from the route params and shows the reading view for a ready document", async () => {
     mockedGetDocument.mockResolvedValueOnce({
       id: "42",
       title: "My Report",
@@ -32,7 +32,40 @@ describe("DocumentPage", () => {
     render(<DocumentPage />);
 
     expect(await screen.findByText("My Report")).toBeInTheDocument();
+    expect(screen.getByText(/reading view is coming soon/i)).toBeInTheDocument();
     expect(mockedGetDocument).toHaveBeenCalledWith("42");
+  });
+
+  it("guards against opening a still-processing document, showing status instead of the reader", async () => {
+    mockedGetDocument.mockResolvedValueOnce({
+      id: "42",
+      title: "My Report",
+      sourceType: "html",
+      status: "processing",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    render(<DocumentPage />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/still processing/i);
+    expect(screen.queryByText(/reading view is coming soon/i)).not.toBeInTheDocument();
+  });
+
+  it("guards against opening a failed document, showing status instead of the reader", async () => {
+    mockedGetDocument.mockResolvedValueOnce({
+      id: "42",
+      title: "My Report",
+      sourceType: "html",
+      status: "failed",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    render(<DocumentPage />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/failed to process/i);
+    expect(screen.queryByText(/reading view is coming soon/i)).not.toBeInTheDocument();
   });
 
   it("shows a not-found message for a 404", async () => {
