@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { GridFSBucket, type ObjectId } from "mongodb";
+import { GridFSBucket, type ObjectId, type GridFSBucketReadStream } from "mongodb";
 
 let bucket: GridFSBucket | null = null;
 
@@ -23,4 +23,8 @@ export function uploadFile(filename: string, contentType: string, buffer: Buffer
 
 export async function deleteFile(fileId: ObjectId): Promise<void> {
   await getFileBucket().delete(fileId);
+}
+
+export function openDownloadStream(fileId: ObjectId): GridFSBucketReadStream {
+  return getFileBucket().openDownloadStream(fileId);
 }

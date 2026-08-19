@@ -3,7 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { DocumentModel } from "../models/Document.js";
-import { uploadFile, deleteFile } from "../lib/gridfs.js";
+import { uploadFile, deleteFile, openDownloadStream } from "../lib/gridfs.js";
 import { detectFileType } from "../lib/fileType.js";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB - memoryStorage buffers the whole file in RAM
@@ -47,6 +47,29 @@ documentsRouter.get("/:id", async (req, res) => {
     updatedAt: document.updatedAt,
     createdAt: document.createdAt,
   });
+});
+
+documentsRouter.get("/:id/file", async (req, res) => {
+  const document = await DocumentModel.findOne({ _id: req.params.id, ownerId: req.userId }).catch(() => null);
+
+  if (!document) {
+    res.status(404).json({ error: "Document not found." });
+    return;
+  }
+
+  if (document.status !== "ready") {
+    res.status(409).json({ error: "Document is not ready." });
+    return;
+  }
+
+  res.setHeader("Content-Type", document.mimeType);
+  res.setHeader("Cache-Control", "private, max-age=3600");
+
+  const downloadStream = openDownloadStream(document.fileId);
+  downloadStream.on("error", () => {
+    if (!res.headersSent) res.status(404).json({ error: "File not found." });
+  });
+  downloadStream.pipe(res);
 });
 
 documentsRouter.delete("/:id", async (req, res) => {

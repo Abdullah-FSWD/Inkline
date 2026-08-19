@@ -220,6 +220,62 @@ describe("GET /documents/:id", () => {
   });
 });
 
+describe("GET /documents/:id/file", () => {
+  it("rejects an unauthenticated request", async () => {
+    const res = await request(app).get("/documents/000000000000000000000000/file");
+    expect(res.status).toBe(401);
+  });
+
+  it("streams back the exact bytes that were uploaded, with the right content type", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent
+      .post("/documents/upload")
+      .attach("file", pdfBuffer(), { filename: "documents-test-stream.pdf", contentType: "application/pdf" });
+
+    const res = await agent.get(`/documents/${upload.body.id}/file`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.body).toEqual(pdfBuffer());
+  });
+
+  it("returns 404 (not 403) for another user's document, revealing nothing about it", async () => {
+    const emailA = uniqueEmail();
+    const agentA = request.agent(app);
+    await agentA.post("/auth/signup").send({ email: emailA, password: "correct-horse" });
+    const upload = await agentA.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-fileB.pdf");
+
+    const emailB = uniqueEmail();
+    const agentB = request.agent(app);
+    await agentB.post("/auth/signup").send({ email: emailB, password: "correct-horse" });
+
+    const res = await agentB.get(`/documents/${upload.body.id}/file`);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 409 for a document that isn't ready", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-notready.pdf");
+    await DocumentModel.updateOne({ _id: upload.body.id }, { $set: { status: "processing" } });
+
+    const res = await agent.get(`/documents/${upload.body.id}/file`);
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 404 for a nonexistent document id", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent.get("/documents/000000000000000000000000/file");
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("DELETE /documents/:id", () => {
   it("rejects an unauthenticated request", async () => {
     const res = await request(app).delete("/documents/000000000000000000000000");
