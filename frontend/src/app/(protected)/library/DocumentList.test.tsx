@@ -41,6 +41,25 @@ describe("DocumentList", () => {
     expect(screen.getByText("Failed")).toBeInTheDocument();
   });
 
+  it("gives each status a visually distinct badge (icon, not just color)", () => {
+    render(
+      <DocumentList
+        documents={[
+          doc({ id: "1", title: "Ready Doc", status: "ready" }),
+          doc({ id: "2", title: "Processing Doc", status: "processing" }),
+          doc({ id: "3", title: "Failed Doc", status: "failed" }),
+        ]}
+        loading={false}
+      />
+    );
+
+    expect(document.querySelector(".lucide-circle-check")).toBeInTheDocument();
+    expect(document.querySelector(".lucide-triangle-alert")).toBeInTheDocument();
+    // processing's spinner icon also appears elsewhere (e.g. loading states), so scope
+    // the check to its own badge rather than asserting global uniqueness
+    expect(screen.getByText("Processing…").closest("span")?.querySelector(".lucide-loader-circle")).toBeInTheDocument();
+  });
+
   it("links a ready document to its reading view", () => {
     render(<DocumentList documents={[doc({ id: "42", status: "ready" })]} loading={false} />);
     expect(screen.getByRole("link")).toHaveAttribute("href", "/documents/42");

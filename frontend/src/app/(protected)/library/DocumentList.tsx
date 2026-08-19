@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Loader2, Trash2, Check, X } from "lucide-react";
+import { FileText, Loader2, Trash2, Check, X, CircleCheck, TriangleAlert } from "lucide-react";
 import type { DocumentSummary } from "@/lib/api";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -18,8 +18,24 @@ const STATUS_CLASS: Record<string, string> = {
   failed: "bg-danger-bg text-danger",
 };
 
+const STATUS_ICON: Record<string, typeof CircleCheck> = {
+  ready: CircleCheck,
+  processing: Loader2,
+  failed: TriangleAlert,
+};
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const Icon = STATUS_ICON[status] ?? Loader2;
+  return (
+    <span className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_CLASS[status] ?? STATUS_CLASS.processing}`}>
+      <Icon size={12} className={status === "processing" ? "animate-spin" : undefined} />
+      {STATUS_LABEL[status] ?? status}
+    </span>
+  );
 }
 
 function DocumentInfo({ doc }: { doc: DocumentSummary }) {
@@ -76,9 +92,7 @@ export function DocumentList({ documents, loading, onDelete }: DocumentListProps
             </div>
           )}
 
-          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_CLASS[doc.status] ?? STATUS_CLASS.processing}`}>
-            {STATUS_LABEL[doc.status] ?? doc.status}
-          </span>
+          <StatusBadge status={doc.status} />
 
           <AnimatePresence initial={false}>
             {confirmingId === doc.id ? (
