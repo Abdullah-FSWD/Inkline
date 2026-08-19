@@ -25,20 +25,24 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function mockPage() {
+  return {
+    getViewport: () => ({ width: 100, height: 150 }),
+    render: vi.fn().mockReturnValue({ promise: Promise.resolve(), cancel: vi.fn() }),
+  };
+}
+
 describe("PdfViewer", () => {
   it("shows a loading state while pdf.js is fetching the document, then renders it", async () => {
-    const documentLoad = deferred<{ getPage: typeof getPage }>();
+    const documentLoad = deferred<{ getPage: typeof getPage; numPages: number }>();
     getDocument.mockReturnValue({ promise: documentLoad.promise });
 
     render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
 
     expect(screen.getByText(/rendering document/i)).toBeInTheDocument();
 
-    getPage.mockResolvedValue({
-      getViewport: () => ({ width: 100, height: 150 }),
-      render: vi.fn().mockReturnValue({ promise: Promise.resolve(), cancel: vi.fn() }),
-    });
-    documentLoad.resolve({ getPage });
+    getPage.mockResolvedValue(mockPage());
+    documentLoad.resolve({ getPage, numPages: 1 });
 
     await vi.waitFor(() => expect(screen.queryByText(/rendering document/i)).not.toBeInTheDocument());
   });
@@ -48,15 +52,12 @@ describe("PdfViewer", () => {
 
     render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't render this pdf/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't load this pdf/i);
   });
 
   it("passes withCredentials so the httpOnly session cookie is sent cross-origin", async () => {
-    getPage.mockResolvedValue({
-      getViewport: () => ({ width: 100, height: 150 }),
-      render: vi.fn().mockReturnValue({ promise: Promise.resolve(), cancel: vi.fn() }),
-    });
-    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage }) });
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
 
     render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
 
@@ -64,5 +65,30 @@ describe("PdfViewer", () => {
     expect(getDocument).toHaveBeenCalledWith(
       expect.objectContaining({ url: "http://localhost:4000/documents/1/file", withCredentials: true })
     );
+  });
+
+  it("renders page 1 by default and reports the total page count for a multi-page document", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 5 }) });
+    const onLoaded = vi.fn();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" onLoaded={onLoaded} />);
+
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+    expect(onLoaded).toHaveBeenCalledWith(5);
+  });
+
+  it("re-fetches the document only when fileUrl changes, not on every render", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 2 }) });
+
+    const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getDocument).toHaveBeenCalledTimes(1));
+
+    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    expect(getDocument).toHaveBeenCalledTimes(1);
+
+    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" />);
+    await vi.waitFor(() => expect(getDocument).toHaveBeenCalledTimes(2));
   });
 });
