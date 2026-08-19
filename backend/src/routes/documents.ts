@@ -3,7 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { DocumentModel } from "../models/Document.js";
-import { uploadFile } from "../lib/gridfs.js";
+import { uploadFile, deleteFile } from "../lib/gridfs.js";
 import { detectFileType } from "../lib/fileType.js";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB - memoryStorage buffers the whole file in RAM
@@ -47,6 +47,23 @@ documentsRouter.get("/:id", async (req, res) => {
     updatedAt: document.updatedAt,
     createdAt: document.createdAt,
   });
+});
+
+documentsRouter.delete("/:id", async (req, res) => {
+  const document = await DocumentModel.findOne({ _id: req.params.id, ownerId: req.userId }).catch(() => null);
+
+  if (!document) {
+    res.status(404).json({ error: "Document not found." });
+    return;
+  }
+
+  // No Page/Annotation records exist yet (Stage 3/4/6) - once they do, cascade their
+  // deletion here too. For now this cascades to the one other thing a document owns:
+  // its file in GridFS.
+  await deleteFile(document.fileId);
+  await document.deleteOne();
+
+  res.status(204).send();
 });
 
 documentsRouter.post("/upload", upload.single("file"), async (req, res) => {

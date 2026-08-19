@@ -1,5 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
 import request from "supertest";
+import mongoose from "mongoose";
 import { createApp } from "../app.js";
 import { UserModel } from "../models/User.js";
 import { DocumentModel } from "../models/Document.js";
@@ -215,6 +216,63 @@ describe("GET /documents/:id", () => {
     await agent.post("/auth/signup").send({ email, password: "correct-horse" });
 
     const res = await agent.get("/documents/not-a-valid-object-id");
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("DELETE /documents/:id", () => {
+  it("rejects an unauthenticated request", async () => {
+    const res = await request(app).delete("/documents/000000000000000000000000");
+    expect(res.status).toBe(401);
+  });
+
+  it("deletes the document and its GridFS file", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-todelete.pdf");
+    const fileId = (await DocumentModel.findById(upload.body.id))!.fileId;
+
+    const res = await agent.delete(`/documents/${upload.body.id}`);
+    expect(res.status).toBe(204);
+
+    expect(await DocumentModel.findById(upload.body.id)).toBeNull();
+    expect(await mongoose.connection.db!.collection("documentFiles.files").findOne({ _id: fileId })).toBeNull();
+  });
+
+  it("no longer appears in the list after deletion", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-todelete2.pdf");
+
+    await agent.delete(`/documents/${upload.body.id}`);
+
+    const res = await agent.get("/documents");
+    expect(res.body).toEqual([]);
+  });
+
+  it("returns 404 (not 403) when trying to delete another user's document, and does not delete it", async () => {
+    const emailA = uniqueEmail();
+    const agentA = request.agent(app);
+    await agentA.post("/auth/signup").send({ email: emailA, password: "correct-horse" });
+    const upload = await agentA.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-protected.pdf");
+
+    const emailB = uniqueEmail();
+    const agentB = request.agent(app);
+    await agentB.post("/auth/signup").send({ email: emailB, password: "correct-horse" });
+
+    const res = await agentB.delete(`/documents/${upload.body.id}`);
+    expect(res.status).toBe(404);
+    expect(await DocumentModel.findById(upload.body.id)).not.toBeNull();
+  });
+
+  it("returns 404 for a nonexistent document id", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent.delete("/documents/000000000000000000000000");
     expect(res.status).toBe(404);
   });
 });
