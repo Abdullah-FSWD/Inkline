@@ -10,6 +10,9 @@ const documentSchema = new Schema(
     sourceType: { type: String, enum: DOCUMENT_SOURCE_TYPES, required: true },
     status: { type: String, enum: DOCUMENT_STATUSES, default: "processing" },
     pageCount: { type: Number, default: 0 },
+    fileId: { type: Schema.Types.ObjectId, required: true },
+    originalFilename: { type: String, required: true },
+    mimeType: { type: String, required: true },
   },
   { timestamps: true }
 );

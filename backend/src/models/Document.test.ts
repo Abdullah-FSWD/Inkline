@@ -4,6 +4,15 @@ import { DocumentModel } from "./Document.js";
 
 const createdIds: Types.ObjectId[] = [];
 
+function baseFields() {
+  return {
+    ownerId: new Types.ObjectId(),
+    fileId: new Types.ObjectId(),
+    originalFilename: "test.pdf",
+    mimeType: "application/pdf",
+  };
+}
+
 afterEach(async () => {
   await DocumentModel.deleteMany({ _id: { $in: createdIds } });
   createdIds.length = 0;
@@ -11,8 +20,7 @@ afterEach(async () => {
 
 describe("Document model", () => {
   it("creates a document with defaults applied", async () => {
-    const ownerId = new Types.ObjectId();
-    const doc = await DocumentModel.create({ ownerId, title: "My Article", sourceType: "html" });
+    const doc = await DocumentModel.create({ ...baseFields(), title: "My Article", sourceType: "html" });
     createdIds.push(doc._id);
 
     expect(doc.status).toBe("processing");
@@ -22,18 +30,16 @@ describe("Document model", () => {
   });
 
   it("rejects an invalid sourceType", async () => {
-    const ownerId = new Types.ObjectId();
-    await expect(DocumentModel.create({ ownerId, title: "Bad", sourceType: "docx" })).rejects.toThrow();
+    await expect(DocumentModel.create({ ...baseFields(), title: "Bad", sourceType: "docx" })).rejects.toThrow();
   });
 
   it("rejects an invalid status", async () => {
-    const ownerId = new Types.ObjectId();
     await expect(
-      DocumentModel.create({ ownerId, title: "Bad", sourceType: "pdf", status: "uploading" })
+      DocumentModel.create({ ...baseFields(), title: "Bad", sourceType: "pdf", status: "uploading" })
     ).rejects.toThrow();
   });
 
-  it("requires ownerId, title, and sourceType", async () => {
+  it("requires ownerId, title, sourceType, fileId, originalFilename, and mimeType", async () => {
     await expect(DocumentModel.create({})).rejects.toThrow();
   });
 });
