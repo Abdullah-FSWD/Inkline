@@ -100,4 +100,30 @@ describe("POST /documents/upload", () => {
     const res = await agent.post("/documents/upload");
     expect(res.status).toBe(400);
   });
+
+  it("rejects an empty file", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent
+      .post("/documents/upload")
+      .attach("file", Buffer.alloc(0), "documents-test-6.pdf");
+
+    expect(res.status).toBe(400);
+    const stored = await DocumentModel.findOne({ originalFilename: "documents-test-6.pdf" });
+    expect(stored).toBeNull();
+  });
+
+  it("rejects a file over the 50MB size limit with a clear message, not a 500", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const oversized = Buffer.concat([Buffer.from("%PDF-1.4"), Buffer.alloc(51 * 1024 * 1024)]);
+    const res = await agent.post("/documents/upload").attach("file", oversized, "documents-test-7.pdf");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/too large/i);
+  }, 20000);
 });

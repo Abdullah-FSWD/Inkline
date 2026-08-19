@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import multer from "multer";
 import { authRouter } from "./routes/auth.js";
 import { documentsRouter } from "./routes/documents.js";
 
@@ -26,6 +27,11 @@ export function createApp() {
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     if (err instanceof SyntaxError && "status" in err && err.status === 400 && "body" in err) {
       res.status(400).json({ error: "Malformed JSON body." });
+      return;
+    }
+    if (err instanceof multer.MulterError) {
+      const message = err.code === "LIMIT_FILE_SIZE" ? "File is too large. Maximum size is 50MB." : "Upload error. Please try again.";
+      res.status(400).json({ error: message });
       return;
     }
     console.error(err);

@@ -6,7 +6,9 @@ import { DocumentModel } from "../models/Document.js";
 import { uploadFile } from "../lib/gridfs.js";
 import { detectFileType } from "../lib/fileType.js";
 
-const upload = multer({ storage: multer.memoryStorage() });
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB - memoryStorage buffers the whole file in RAM
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES } });
 
 export const documentsRouter = Router();
 
