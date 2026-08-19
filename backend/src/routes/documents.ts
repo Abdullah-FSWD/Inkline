@@ -29,6 +29,26 @@ documentsRouter.get("/", async (req, res) => {
   );
 });
 
+documentsRouter.get("/:id", async (req, res) => {
+  // an invalid ObjectId string makes Mongoose reject the query rather than just returning
+  // no results, so this treats "not a valid id" and "not found" the same way: 404, not 500.
+  const document = await DocumentModel.findOne({ _id: req.params.id, ownerId: req.userId }).catch(() => null);
+
+  if (!document) {
+    res.status(404).json({ error: "Document not found." });
+    return;
+  }
+
+  res.status(200).json({
+    id: document._id.toString(),
+    title: document.title,
+    sourceType: document.sourceType,
+    status: document.status,
+    updatedAt: document.updatedAt,
+    createdAt: document.createdAt,
+  });
+});
+
 documentsRouter.post("/upload", upload.single("file"), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: "A file is required." });

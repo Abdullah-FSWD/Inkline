@@ -39,4 +39,14 @@ describe("DocumentList", () => {
     expect(screen.getByText("Ready")).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
   });
+
+  it("links a ready document to its reading view", () => {
+    render(<DocumentList documents={[doc({ id: "42", status: "ready" })]} loading={false} />);
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/documents/42");
+  });
+
+  it("does not make a non-ready document clickable", () => {
+    render(<DocumentList documents={[doc({ status: "processing" })]} loading={false} />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
 });

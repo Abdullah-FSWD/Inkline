@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { FileText, Loader2 } from "lucide-react";
 import type { DocumentSummary } from "@/lib/api";
@@ -18,6 +19,21 @@ const STATUS_CLASS: Record<string, string> = {
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function DocumentRow({ doc }: { doc: DocumentSummary }) {
+  return (
+    <>
+      <FileText size={18} className="shrink-0 text-accent" strokeWidth={1.75} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-foreground">{doc.title}</p>
+        <p className="text-xs text-muted-foreground">Updated {formatDate(doc.updatedAt)}</p>
+      </div>
+      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_CLASS[doc.status] ?? STATUS_CLASS.processing}`}>
+        {STATUS_LABEL[doc.status] ?? doc.status}
+      </span>
+    </>
+  );
 }
 
 export function DocumentList({ documents, loading }: { documents: DocumentSummary[]; loading: boolean }) {
@@ -42,16 +58,16 @@ export function DocumentList({ documents, loading }: { documents: DocumentSummar
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, delay: index * 0.03 }}
-          className="flex items-center gap-3 px-4 py-3"
         >
-          <FileText size={18} className="shrink-0 text-accent" strokeWidth={1.75} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">{doc.title}</p>
-            <p className="text-xs text-muted-foreground">Updated {formatDate(doc.updatedAt)}</p>
-          </div>
-          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_CLASS[doc.status] ?? STATUS_CLASS.processing}`}>
-            {STATUS_LABEL[doc.status] ?? doc.status}
-          </span>
+          {doc.status === "ready" ? (
+            <Link href={`/documents/${doc.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/5">
+              <DocumentRow doc={doc} />
+            </Link>
+          ) : (
+            <div className="flex items-center gap-3 px-4 py-3">
+              <DocumentRow doc={doc} />
+            </div>
+          )}
         </motion.li>
       ))}
     </ul>

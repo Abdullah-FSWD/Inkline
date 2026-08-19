@@ -117,3 +117,7 @@ export interface DocumentSummary {
 export function listDocuments(): Promise<DocumentSummary[]> {
   return getJson("/documents");
 }
+
+export function getDocument(id: string): Promise<DocumentSummary> {
+  return getJson(`/documents/${id}`);
+}

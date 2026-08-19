@@ -168,3 +168,53 @@ describe("GET /documents", () => {
     expect(res.body).toEqual([]);
   });
 });
+
+describe("GET /documents/:id", () => {
+  it("rejects an unauthenticated request", async () => {
+    const res = await request(app).get("/documents/000000000000000000000000");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns the document when it belongs to the current user", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-owned.pdf");
+
+    const res = await agent.get(`/documents/${upload.body.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: upload.body.id, title: "documents-test-owned", status: "ready" });
+  });
+
+  it("returns 404 (not 403) for another user's document, revealing nothing about it", async () => {
+    const emailA = uniqueEmail();
+    const agentA = request.agent(app);
+    await agentA.post("/auth/signup").send({ email: emailA, password: "correct-horse" });
+    const upload = await agentA.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-notyours.pdf");
+
+    const emailB = uniqueEmail();
+    const agentB = request.agent(app);
+    await agentB.post("/auth/signup").send({ email: emailB, password: "correct-horse" });
+
+    const res = await agentB.get(`/documents/${upload.body.id}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 for a nonexistent document id", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent.get("/documents/000000000000000000000000");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not 500) for a malformed document id", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent.get("/documents/not-a-valid-object-id");
+    expect(res.status).toBe(404);
+  });
+});
