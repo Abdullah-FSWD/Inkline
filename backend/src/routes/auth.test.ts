@@ -123,6 +123,26 @@ describe("POST /auth/login", () => {
     const res = await request(app).post("/auth/login").send({ email: "a@example.com" });
     expect(res.status).toBe(400);
   });
+
+  it("takes comparable time for a nonexistent email as for a wrong password (no timing leak)", async () => {
+    const email = uniqueEmail();
+    await request(app).post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const timeRequest = async (body: object) => {
+      const start = performance.now();
+      await request(app).post("/auth/login").send(body);
+      return performance.now() - start;
+    };
+
+    // Both paths must run bcrypt.compare, which dominates timing (tens of ms) over
+    // any fixed per-request overhead - a nonexistent-email response returning near-instantly
+    // would indicate the compare is being skipped, leaking which emails are registered.
+    const wrongPasswordMs = await timeRequest({ email, password: "wrong-password" });
+    const nonexistentEmailMs = await timeRequest({ email: uniqueEmail(), password: "wrong-password" });
+
+    expect(wrongPasswordMs).toBeGreaterThan(10);
+    expect(nonexistentEmailMs).toBeGreaterThan(10);
+  });
 });
 
 describe("GET /auth/me", () => {

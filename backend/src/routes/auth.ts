@@ -7,6 +7,13 @@ import { requireAuth } from "../middleware/requireAuth.js";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
 
+// A precomputed hash with no matching password, compared against on a login attempt for
+// an email that doesn't exist. Without this, that path returns instantly while a wrong
+// password on a real account pays the cost of bcrypt.compare - a timing side-channel an
+// attacker could use to enumerate registered emails even though the error message itself
+// never differs.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync("no-such-account", 10);
+
 export const authRouter = Router();
 
 function setSessionCookie(res: Response, userId: string) {
@@ -66,13 +73,9 @@ authRouter.post("/login", async (req, res) => {
   const invalidCredentials = () => res.status(401).json({ error: "Invalid email or password." });
 
   const user = await UserModel.findOne({ email: normalizedEmail });
-  if (!user) {
-    invalidCredentials();
-    return;
-  }
+  const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
 
-  const passwordMatches = await bcrypt.compare(password, user.passwordHash);
-  if (!passwordMatches) {
+  if (!user || !passwordMatches) {
     invalidCredentials();
     return;
   }
