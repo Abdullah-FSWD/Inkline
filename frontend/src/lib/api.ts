@@ -49,3 +49,47 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   if (!res.ok) throw new ApiError(data.error ?? "Something went wrong.", res.status);
   return data;
 }
+
+export interface UploadedDocument {
+  id: string;
+  title: string;
+  sourceType: string;
+  status: string;
+  createdAt: string;
+}
+
+// fetch has no upload-progress API, so this uses XMLHttpRequest instead.
+export function uploadDocument(file: File, onProgress?: (percent: number) => void): Promise<UploadedDocument> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}/documents/upload`);
+    xhr.withCredentials = true;
+
+    xhr.upload.onprogress = (event) => {
+      if (onProgress && event.lengthComputable) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      let data: { error?: string } & Partial<UploadedDocument> = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // non-JSON response body; fall through with an empty object
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data as UploadedDocument);
+      } else {
+        reject(new ApiError(data.error ?? "Something went wrong.", xhr.status));
+      }
+    };
+
+    xhr.onerror = () => reject(new ApiError("Network error. Please try again.", 0));
+
+    const formData = new FormData();
+    formData.append("file", file);
+    xhr.send(formData);
+  });
+}

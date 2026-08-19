@@ -26,6 +26,9 @@ export function Header() {
           <nav className="flex items-center gap-5 text-sm">
             {user ? (
               <>
+                <Link href="/library" className="font-medium text-muted-foreground transition-colors hover:text-foreground">
+                  Library
+                </Link>
                 <span className="text-muted-foreground">{user.email}</span>
                 <button
                   type="button"
