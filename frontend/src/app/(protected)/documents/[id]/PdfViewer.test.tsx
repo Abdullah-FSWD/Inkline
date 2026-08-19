@@ -141,4 +141,73 @@ describe("PdfViewer", () => {
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
     expect(getPage).not.toHaveBeenCalledWith(2);
   });
+
+  it("jumps to a typed page number on Enter", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 5 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    const input = screen.getByLabelText(/page number/i);
+    await user.clear(input);
+    await user.type(input, "4{Enter}");
+
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(4));
+  });
+
+  it("clamps a page number typed above the last page", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    const input = screen.getByLabelText(/page number/i);
+    await user.clear(input);
+    await user.type(input, "999{Enter}");
+
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(3));
+  });
+
+  it("reverts to the current page on invalid input instead of navigating", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+    getPage.mockClear();
+
+    const input = screen.getByLabelText(/page number/i);
+    await user.clear(input);
+    await user.type(input, "abc{Enter}");
+
+    expect(getPage).not.toHaveBeenCalled();
+    expect(input).toHaveValue("1");
+  });
+
+  it("visually resets an out-of-range value even when the clamp target is the page already showing", async () => {
+    // regression test: React bails out on setCurrentPage(3) if currentPage is already 3, so
+    // a fix relying only on the key-based remount (tied to currentPage actually changing)
+    // would leave "999" visible in the input despite nothing being out of range anymore.
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    await user.clear(screen.getByLabelText(/page number/i));
+    await user.type(screen.getByLabelText(/page number/i), "3{Enter}");
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(3));
+
+    // the input remounts (key={currentPage}) once the page actually changes, so re-query it
+    await user.clear(screen.getByLabelText(/page number/i));
+    await user.type(screen.getByLabelText(/page number/i), "999{Enter}");
+
+    expect(screen.getByLabelText(/page number/i)).toHaveValue("3");
+  });
 });

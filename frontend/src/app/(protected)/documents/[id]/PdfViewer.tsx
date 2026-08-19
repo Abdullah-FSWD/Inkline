@@ -17,6 +17,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
   const [numPages, setNumPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const pageInputRef = useRef<HTMLInputElement>(null);
 
   // Load the PDF document once per fileUrl and cache it - later page changes (US-3.2's
   // next/prev controls) reuse this instance instead of re-fetching the whole file.
@@ -102,6 +103,19 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
     };
   }, [pdf, currentPage]);
 
+  function commitPageInput() {
+    const raw = pageInputRef.current?.value ?? "";
+    const parsed = Number.parseInt(raw, 10);
+    // if the clamped/reverted target equals the page already showing, React bails out on
+    // the identical setState and the input's key-based remount never fires - so the typed,
+    // out-of-range text would otherwise stay visible even though nothing navigated. Setting
+    // the DOM value directly here covers that case regardless of whether state changes.
+    const target = Number.isInteger(parsed) ? Math.min(numPages, Math.max(1, parsed)) : currentPage;
+
+    setCurrentPage(target);
+    if (pageInputRef.current) pageInputRef.current.value = String(target);
+  }
+
   if (error) {
     return (
       <p role="alert" className="py-16 text-center text-sm text-danger">
@@ -131,6 +145,28 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
           >
             <ChevronLeft size={18} />
           </button>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              commitPageInput();
+              pageInputRef.current?.blur();
+            }}
+            className="flex items-center gap-1.5"
+          >
+            <input
+              key={currentPage}
+              ref={pageInputRef}
+              type="text"
+              inputMode="numeric"
+              defaultValue={currentPage}
+              aria-label="Page number"
+              onBlur={commitPageInput}
+              className="w-10 rounded-md border border-input-border bg-input px-1.5 py-1 text-center text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+            />
+            <span className="text-sm text-muted-foreground">/ {numPages}</span>
+          </form>
+
           <button
             type="button"
             aria-label="Next page"
