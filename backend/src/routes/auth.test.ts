@@ -167,3 +167,26 @@ describe("GET /auth/me", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("POST /auth/logout", () => {
+  it("clears the session cookie so a subsequent request is unauthenticated", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const beforeLogout = await agent.get("/auth/me");
+    expect(beforeLogout.status).toBe(200);
+
+    const logoutRes = await agent.post("/auth/logout");
+    expect(logoutRes.status).toBe(200);
+    expect(logoutRes.headers["set-cookie"]?.[0]).toMatch(/^session=;/);
+
+    const afterLogout = await agent.get("/auth/me");
+    expect(afterLogout.status).toBe(401);
+  });
+
+  it("succeeds even when there was no session to begin with", async () => {
+    const res = await request(app).post("/auth/logout");
+    expect(res.status).toBe(200);
+  });
+});

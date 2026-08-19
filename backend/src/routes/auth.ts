@@ -16,13 +16,23 @@ const DUMMY_PASSWORD_HASH = bcrypt.hashSync("no-such-account", 10);
 
 export const authRouter = Router();
 
-function setSessionCookie(res: Response, userId: string) {
-  res.cookie(SESSION_COOKIE_NAME, createSessionToken(userId), {
+function sessionCookieOptions() {
+  return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "lax" as const,
+  };
+}
+
+function setSessionCookie(res: Response, userId: string) {
+  res.cookie(SESSION_COOKIE_NAME, createSessionToken(userId), {
+    ...sessionCookieOptions(),
     maxAge: SESSION_MAX_AGE_MS,
   });
+}
+
+function clearSessionCookie(res: Response) {
+  res.clearCookie(SESSION_COOKIE_NAME, sessionCookieOptions());
 }
 
 authRouter.post("/signup", async (req, res) => {
@@ -82,6 +92,11 @@ authRouter.post("/login", async (req, res) => {
 
   setSessionCookie(res, user._id.toString());
   res.status(200).json({ id: user._id.toString(), email: user.email });
+});
+
+authRouter.post("/logout", (_req, res) => {
+  clearSessionCookie(res);
+  res.status(200).json({ ok: true });
 });
 
 authRouter.get("/me", requireAuth, async (req, res) => {
