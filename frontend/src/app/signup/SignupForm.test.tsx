@@ -3,16 +3,28 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { SignupForm } from "./SignupForm";
 import { signup, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return { ...actual, signup: vi.fn() };
 });
 
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: vi.fn(),
+}));
+
 const mockedSignup = vi.mocked(signup);
+const mockedUseAuth = vi.mocked(useAuth);
 
 beforeEach(() => {
   mockedSignup.mockReset();
+  mockedUseAuth.mockReturnValue({
+    user: null,
+    loading: false,
+    refresh: vi.fn().mockResolvedValue(undefined),
+    logout: vi.fn().mockResolvedValue(undefined),
+  });
 });
 
 async function fillAndSubmit(email: string, password: string) {

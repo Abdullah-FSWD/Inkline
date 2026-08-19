@@ -4,8 +4,10 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Mail, Lock, Loader2, CircleCheck, TriangleAlert } from "lucide-react";
 import { login, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 export function LoginForm() {
+  const { refresh } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +28,7 @@ export function LoginForm() {
     setSubmitting(true);
     try {
       await login(normalizedEmail, password);
+      await refresh();
       setSuccess(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");

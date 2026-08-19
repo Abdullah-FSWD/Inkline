@@ -4,11 +4,13 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Mail, Lock, Loader2, CircleCheck, TriangleAlert } from "lucide-react";
 import { signup, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
 
 export function SignupForm() {
+  const { refresh } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +35,7 @@ export function SignupForm() {
     setSubmitting(true);
     try {
       await signup(normalizedEmail, password);
+      await refresh();
       setSuccess(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
