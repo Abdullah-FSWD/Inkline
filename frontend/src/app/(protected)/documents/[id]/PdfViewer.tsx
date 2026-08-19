@@ -134,48 +134,59 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
       )}
       <canvas ref={canvasRef} className={`rounded-lg shadow-md ${loading ? "hidden" : ""}`} />
 
-      {!loading && numPages > 1 && (
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            aria-label="Previous page"
-            disabled={currentPage <= 1}
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-          >
-            <ChevronLeft size={18} />
-          </button>
+      {/* Persistent position indicator: gated on the document having loaded at all, not on
+          per-page `loading` - that flag flips true/false on every page turn, and hiding this
+          on each turn would make it disappear and reappear constantly instead of staying
+          visible "at all times during reading" as required. */}
+      {pdf && (
+        <div className="flex items-center gap-3" aria-live="polite">
+          {numPages > 1 ? (
+            <>
+              <button
+                type="button"
+                aria-label="Previous page"
+                disabled={loading || currentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+              >
+                <ChevronLeft size={18} />
+              </button>
 
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              commitPageInput();
-              pageInputRef.current?.blur();
-            }}
-            className="flex items-center gap-1.5"
-          >
-            <input
-              key={currentPage}
-              ref={pageInputRef}
-              type="text"
-              inputMode="numeric"
-              defaultValue={currentPage}
-              aria-label="Page number"
-              onBlur={commitPageInput}
-              className="w-10 rounded-md border border-input-border bg-input px-1.5 py-1 text-center text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
-            />
-            <span className="text-sm text-muted-foreground">/ {numPages}</span>
-          </form>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  commitPageInput();
+                  pageInputRef.current?.blur();
+                }}
+                className="flex items-center gap-1.5"
+              >
+                <input
+                  key={currentPage}
+                  ref={pageInputRef}
+                  type="text"
+                  inputMode="numeric"
+                  defaultValue={currentPage}
+                  disabled={loading}
+                  aria-label="Page number"
+                  onBlur={commitPageInput}
+                  className="w-10 rounded-md border border-input-border bg-input px-1.5 py-1 text-center text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                />
+                <span className="text-sm text-muted-foreground">/ {numPages}</span>
+              </form>
 
-          <button
-            type="button"
-            aria-label="Next page"
-            disabled={currentPage >= numPages}
-            onClick={() => setCurrentPage((p) => Math.min(numPages, p + 1))}
-            className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-          >
-            <ChevronRight size={18} />
-          </button>
+              <button
+                type="button"
+                aria-label="Next page"
+                disabled={loading || currentPage >= numPages}
+                onClick={() => setCurrentPage((p) => Math.min(numPages, p + 1))}
+                className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </>
+          ) : (
+            <span className="text-sm text-muted-foreground">Page 1 of 1</span>
+          )}
         </div>
       )}
     </div>

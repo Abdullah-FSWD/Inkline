@@ -93,14 +93,43 @@ describe("PdfViewer", () => {
     await vi.waitFor(() => expect(getDocument).toHaveBeenCalledTimes(2));
   });
 
-  it("does not show navigation controls for a single-page document", async () => {
+  it("shows a plain 'Page 1 of 1' indicator (no interactive controls) for a single-page document", async () => {
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
 
     render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
 
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+    expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /next page/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps the page indicator and nav controls visible (not hidden) while a page turn is rendering", async () => {
+    // regression guard: the indicator used to be gated on `!loading`, which flips true/false
+    // on every page turn - meaning it would vanish and reappear on each navigation instead of
+    // staying visible "at all times during reading" per the acceptance criteria.
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    const pageRender = deferred<unknown>();
+    getPage.mockReturnValue({
+      getViewport: () => ({ width: 100, height: 150 }),
+      render: vi.fn().mockReturnValue({ promise: pageRender.promise, cancel: vi.fn() }),
+    });
+
+    await user.click(screen.getByRole("button", { name: /next page/i }));
+
+    // the render() promise for page 2 hasn't resolved yet - still mid-transition
+    expect(screen.getByRole("button", { name: /next page/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/page number/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /next page/i })).toBeDisabled();
+
+    pageRender.resolve(undefined);
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /next page/i })).toBeEnabled());
   });
 
   it("navigates forward and back through a multi-page document", async () => {
