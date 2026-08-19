@@ -29,6 +29,17 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return data;
 }
 
+async function getJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, { credentials: "include" });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new ApiError(data.error ?? "Something went wrong.", res.status);
+  }
+
+  return data;
+}
+
 export function signup(email: string, password: string): Promise<AuthUser> {
   return postJson("/auth/signup", { email, password });
 }
@@ -92,4 +103,17 @@ export function uploadDocument(file: File, onProgress?: (percent: number) => voi
     formData.append("file", file);
     xhr.send(formData);
   });
+}
+
+export interface DocumentSummary {
+  id: string;
+  title: string;
+  sourceType: string;
+  status: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export function listDocuments(): Promise<DocumentSummary[]> {
+  return getJson("/documents");
 }
