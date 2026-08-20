@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDocumentProxy = any;
+
+const MIN_SCALE = 0.6;
+const MAX_SCALE = 3;
+const SCALE_STEP = 0.2;
+const DEFAULT_SCALE = 1.4;
 
 interface PdfViewerProps {
   fileUrl: string;
@@ -15,6 +20,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
   const [pdf, setPdf] = useState<PdfDocumentProxy | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(1);
+  const [scale, setScale] = useState(DEFAULT_SCALE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
@@ -28,6 +34,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
       setPdf(null);
       setCurrentPage(1);
       setNumPages(1);
+      setScale(DEFAULT_SCALE);
       setError(null);
 
       try {
@@ -75,7 +82,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
         const page = await pdf.getPage(currentPage);
         if (cancelled) return;
 
-        const viewport = page.getViewport({ scale: 1.4 });
+        const viewport = page.getViewport({ scale });
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -101,7 +108,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [pdf, currentPage]);
+  }, [pdf, currentPage, scale]);
 
   function commitPageInput() {
     const raw = pageInputRef.current?.value ?? "";
@@ -187,6 +194,30 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
           ) : (
             <span className="text-sm text-muted-foreground">Page 1 of 1</span>
           )}
+        </div>
+      )}
+
+      {pdf && (
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            aria-label="Zoom out"
+            disabled={loading || scale <= MIN_SCALE}
+            onClick={() => setScale((s) => Math.max(MIN_SCALE, Math.round((s - SCALE_STEP) * 100) / 100))}
+            className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ZoomOut size={16} />
+          </button>
+          <span className="w-12 text-center text-sm text-muted-foreground">{Math.round((scale / DEFAULT_SCALE) * 100)}%</span>
+          <button
+            type="button"
+            aria-label="Zoom in"
+            disabled={loading || scale >= MAX_SCALE}
+            onClick={() => setScale((s) => Math.min(MAX_SCALE, Math.round((s + SCALE_STEP) * 100) / 100))}
+            className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ZoomIn size={16} />
+          </button>
         </div>
       )}
     </div>

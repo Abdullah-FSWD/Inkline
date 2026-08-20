@@ -28,7 +28,7 @@ function deferred<T>() {
 
 function mockPage() {
   return {
-    getViewport: () => ({ width: 100, height: 150 }),
+    getViewport: vi.fn(() => ({ width: 100, height: 150 })),
     render: vi.fn().mockReturnValue({ promise: Promise.resolve(), cancel: vi.fn() }),
   };
 }
@@ -238,5 +238,65 @@ describe("PdfViewer", () => {
     await user.type(screen.getByLabelText(/page number/i), "999{Enter}");
 
     expect(screen.getByLabelText(/page number/i)).toHaveValue("3");
+  });
+
+  it("zooms in and out, re-rendering the page at the new scale", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+
+    expect(screen.getByText("100%")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /zoom in/i }));
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.6 }));
+    expect(screen.getByText("114%")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /zoom out/i }));
+    await user.click(screen.getByRole("button", { name: /zoom out/i }));
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.2 }));
+    expect(screen.getByText("86%")).toBeInTheDocument();
+  });
+
+  it("disables zoom out at the minimum scale and zoom in at the maximum", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+
+    for (let i = 0; i < 10; i++) {
+      await user.click(screen.getByRole("button", { name: /zoom out/i }));
+    }
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /zoom out/i })).toBeDisabled());
+
+    for (let i = 0; i < 15; i++) {
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+    }
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /zoom in/i })).toBeDisabled());
+  });
+
+  it("resets zoom to the default when switching to a different document", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+    await user.click(screen.getByRole("button", { name: /zoom in/i }));
+    await vi.waitFor(() => expect(screen.getByText("114%")).toBeInTheDocument());
+
+    page.getViewport.mockClear();
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" />);
+
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+    expect(screen.getByText("100%")).toBeInTheDocument();
   });
 });
