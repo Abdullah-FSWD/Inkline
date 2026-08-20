@@ -9,6 +9,7 @@ const MIN_SCALE = 0.6;
 const MAX_SCALE = 3;
 const SCALE_STEP = 0.2;
 const DEFAULT_SCALE = 1.4;
+type FitMode = "width" | "height" | null;
 
 interface PdfViewerProps {
   fileUrl: string;
@@ -16,11 +17,13 @@ interface PdfViewerProps {
 }
 
 export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdf, setPdf] = useState<PdfDocumentProxy | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(1);
   const [scale, setScale] = useState(DEFAULT_SCALE);
+  const [fitMode, setFitMode] = useState<FitMode>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +38,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
       setCurrentPage(1);
       setNumPages(1);
       setScale(DEFAULT_SCALE);
+      setFitMode(null);
       setError(null);
 
       try {
@@ -67,7 +71,9 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoaded is a callback, not reactive state
   }, [fileUrl]);
 
-  // Render whichever page is current whenever the loaded document or the requested page changes.
+  // Render whichever page is current whenever the loaded document, requested page, scale, or
+  // fit mode changes. When a fit mode is active, the target scale is derived from the page's
+  // native size vs. the available container space rather than from the `scale` state directly.
   useEffect(() => {
     if (!pdf) return;
 
@@ -82,7 +88,27 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
         const page = await pdf.getPage(currentPage);
         if (cancelled) return;
 
-        const viewport = page.getViewport({ scale });
+        let effectiveScale = scale;
+
+        if (fitMode) {
+          const native = page.getViewport({ scale: 1 });
+          if (fitMode === "width" && containerRef.current) {
+            effectiveScale = containerRef.current.clientWidth / native.width;
+          } else if (fitMode === "height") {
+            // getBoundingClientRect().top is relative to the current scroll position, which
+            // proved unreliable in practice: resizing the canvas below the fold can trigger
+            // the browser's scroll anchoring, shifting the page out from under this
+            // measurement between when it's read and when it's actually rendered at. Until
+            // US-3.4 builds a real fixed-height reading viewport, this uses a fixed allowance
+            // for the header/title/toolbar chrome above the page instead of a live
+            // measurement - less precise, but deterministic and free of scroll side-effects.
+            const CHROME_ALLOWANCE_PX = 260;
+            effectiveScale = (window.innerHeight - CHROME_ALLOWANCE_PX) / native.height;
+          }
+          effectiveScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, effectiveScale));
+        }
+
+        const viewport = page.getViewport({ scale: effectiveScale });
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -94,6 +120,8 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
 
         renderTask = page.render({ canvasContext: context, viewport, canvas });
         await renderTask.promise;
+
+        if (!cancelled && fitMode) setScale(effectiveScale);
       } catch (err) {
         if (!cancelled) setError("Couldn't render this PDF.");
         console.error(err);
@@ -108,7 +136,7 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [pdf, currentPage, scale]);
+  }, [pdf, currentPage, scale, fitMode]);
 
   function commitPageInput() {
     const raw = pageInputRef.current?.value ?? "";
@@ -123,6 +151,11 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
     if (pageInputRef.current) pageInputRef.current.value = String(target);
   }
 
+  function zoomBy(direction: 1 | -1) {
+    setFitMode(null);
+    setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round((s + direction * SCALE_STEP) * 100) / 100)));
+  }
+
   if (error) {
     return (
       <p role="alert" className="py-16 text-center text-sm text-danger">
@@ -132,14 +165,16 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
   }
 
   return (
-    <div className="flex flex-col items-center gap-4">
+    <div className="flex w-full flex-col items-center gap-4">
       {loading && (
         <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
           <Loader2 size={16} className="animate-spin" />
           Rendering document…
         </div>
       )}
-      <canvas ref={canvasRef} className={`rounded-lg shadow-md ${loading ? "hidden" : ""}`} />
+      <div ref={containerRef} className={`flex w-full justify-center ${loading ? "hidden" : ""}`}>
+        <canvas ref={canvasRef} className="rounded-lg shadow-md" />
+      </div>
 
       {/* Persistent position indicator: gated on the document having loaded at all, not on
           per-page `loading` - that flag flips true/false on every page turn, and hiding this
@@ -198,12 +233,12 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
       )}
 
       {pdf && (
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-center gap-1.5">
           <button
             type="button"
             aria-label="Zoom out"
             disabled={loading || scale <= MIN_SCALE}
-            onClick={() => setScale((s) => Math.max(MIN_SCALE, Math.round((s - SCALE_STEP) * 100) / 100))}
+            onClick={() => zoomBy(-1)}
             className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
           >
             <ZoomOut size={16} />
@@ -213,10 +248,35 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
             type="button"
             aria-label="Zoom in"
             disabled={loading || scale >= MAX_SCALE}
-            onClick={() => setScale((s) => Math.min(MAX_SCALE, Math.round((s + SCALE_STEP) * 100) / 100))}
+            onClick={() => zoomBy(1)}
             className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
           >
             <ZoomIn size={16} />
+          </button>
+
+          <div className="mx-1 h-4 w-px bg-surface-border" />
+
+          <button
+            type="button"
+            aria-pressed={fitMode === "width"}
+            disabled={loading}
+            onClick={() => setFitMode((m) => (m === "width" ? null : "width"))}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-30 ${
+              fitMode === "width" ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-surface hover:text-foreground"
+            }`}
+          >
+            Fit width
+          </button>
+          <button
+            type="button"
+            aria-pressed={fitMode === "height"}
+            disabled={loading}
+            onClick={() => setFitMode((m) => (m === "height" ? null : "height"))}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-30 ${
+              fitMode === "height" ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-surface hover:text-foreground"
+            }`}
+          >
+            Fit height
           </button>
         </div>
       )}

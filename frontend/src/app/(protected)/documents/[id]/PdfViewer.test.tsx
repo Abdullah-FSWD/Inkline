@@ -299,4 +299,56 @@ describe("PdfViewer", () => {
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
     expect(screen.getByText("100%")).toBeInTheDocument();
   });
+
+  it("toggles fit-width on and off", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+
+    const fitWidthButton = screen.getByRole("button", { name: /fit width/i });
+    expect(fitWidthButton).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(fitWidthButton);
+    await vi.waitFor(() => expect(fitWidthButton).toHaveAttribute("aria-pressed", "true"));
+
+    await user.click(fitWidthButton);
+    expect(fitWidthButton).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("switches from fit-height to fit-width without both being active", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+
+    await user.click(screen.getByRole("button", { name: /fit height/i }));
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /fit height/i })).toHaveAttribute("aria-pressed", "true"));
+
+    await user.click(screen.getByRole("button", { name: /fit width/i }));
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /fit width/i })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("button", { name: /fit height/i })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("clears the active fit mode when manually zooming", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+
+    await user.click(screen.getByRole("button", { name: /fit width/i }));
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /fit width/i })).toHaveAttribute("aria-pressed", "true"));
+
+    await user.click(screen.getByRole("button", { name: /zoom in/i }));
+    expect(screen.getByRole("button", { name: /fit width/i })).toHaveAttribute("aria-pressed", "false");
+  });
 });
