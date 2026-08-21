@@ -15,9 +15,10 @@ type FitMode = "width" | "height" | null;
 interface PdfViewerProps {
   fileUrl: string;
   onLoaded?: (numPages: number) => void;
+  showToolbar?: boolean;
 }
 
-export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
+export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdf, setPdf] = useState<PdfDocumentProxy | null>(null);
@@ -178,8 +179,9 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
       {/* Persistent position indicator: gated on the document having loaded at all, not on
           per-page `loading` - that flag flips true/false on every page turn, and hiding this
           on each turn would make it disappear and reappear constantly instead of staying
-          visible "at all times during reading" as required. */}
-      {pdf && (
+          visible "at all times during reading" as required (while the toolbar is shown at
+          all - `showToolbar` is the reader's own explicit choice to hide all chrome). */}
+      {pdf && showToolbar && (
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-surface-border bg-surface px-4 py-2">
           <div className="flex items-center gap-3" aria-live="polite">
             {numPages > 1 ? (

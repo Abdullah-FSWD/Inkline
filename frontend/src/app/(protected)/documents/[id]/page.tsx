@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Loader2, ArrowLeft, TriangleAlert } from "lucide-react";
+import { Loader2, ArrowLeft, TriangleAlert, PanelTopClose, PanelTopOpen } from "lucide-react";
 import { getDocument, getDocumentFileUrl, ApiError, type DocumentSummary } from "@/lib/api";
 import { PdfViewer } from "./PdfViewer";
 
@@ -12,6 +12,7 @@ export default function DocumentPage() {
   const [doc, setDocument] = useState<DocumentSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [toolbarsVisible, setToolbarsVisible] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,16 +95,32 @@ export default function DocumentPage() {
   // normally-flowing page - which is also what makes PdfViewer's fit-height mode an exact
   // measurement now instead of the fixed-allowance approximation from US-3.3.
   return (
-    <main className="flex h-[calc(100vh-4rem)] flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b border-surface-border bg-surface px-4 py-2">
-        <Link href="/library" className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-          <ArrowLeft size={14} />
-          Back
-        </Link>
-        <h1 className="truncate text-sm font-medium text-foreground">{doc.title}</h1>
-      </div>
+    <main className="relative flex h-[calc(100vh-4rem)] flex-col">
+      {toolbarsVisible && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-surface-border bg-surface px-4 py-2">
+          <Link href="/library" className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+            <ArrowLeft size={14} />
+            Back
+          </Link>
+          <h1 className="truncate text-sm font-medium text-foreground">{doc.title}</h1>
+        </div>
+      )}
+
+      {/* Always rendered regardless of toolbarsVisible, so hiding the bars never traps the
+          reader with no way to bring them back. Toggling only ever hides/shows chrome around
+          the reader - PdfViewer itself is never unmounted, so page/zoom/fit state (the
+          "reading position") is untouched either way. */}
+      <button
+        type="button"
+        aria-label={toolbarsVisible ? "Hide toolbars" : "Show toolbars"}
+        onClick={() => setToolbarsVisible((v) => !v)}
+        className="absolute right-3 top-3 z-10 rounded-full bg-surface/90 p-2 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-surface hover:text-foreground"
+      >
+        {toolbarsVisible ? <PanelTopClose size={16} /> : <PanelTopOpen size={16} />}
+      </button>
+
       <div className="min-h-0 flex-1">
-        <PdfViewer fileUrl={getDocumentFileUrl(doc.id)} />
+        <PdfViewer fileUrl={getDocumentFileUrl(doc.id)} showToolbar={toolbarsVisible} />
       </div>
     </main>
   );

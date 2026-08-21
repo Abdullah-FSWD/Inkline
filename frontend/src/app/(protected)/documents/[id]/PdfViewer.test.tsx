@@ -351,4 +351,28 @@ describe("PdfViewer", () => {
     await user.click(screen.getByRole("button", { name: /zoom in/i }));
     expect(screen.getByRole("button", { name: /fit width/i })).toHaveAttribute("aria-pressed", "false");
   });
+
+  it("hides its own toolbar when showToolbar is false, without affecting rendering", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" showToolbar={false} />);
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+
+    expect(screen.queryByRole("button", { name: /next page/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /zoom in/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/page number/i)).not.toBeInTheDocument();
+  });
+
+  it("defaults to showing the toolbar when showToolbar is not passed", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+
+    expect(screen.getByRole("button", { name: /zoom in/i })).toBeInTheDocument();
+  });
 });
