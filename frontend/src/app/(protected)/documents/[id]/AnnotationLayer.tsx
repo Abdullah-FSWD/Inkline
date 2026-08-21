@@ -1,48 +1,61 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { Point, StrokeData } from "./annotations";
+import type { Point, StrokeData, ToolId } from "./annotations";
 
 interface AnnotationLayerProps {
   pageNumber: number;
   width: number;
   height: number;
+  tool: ToolId;
   strokes?: StrokeData[];
   onStrokeComplete?: (stroke: StrokeData) => void;
 }
 
-// Pencil is the only annotation tool that exists yet (highlighter/underline come in
-// US-4.2/4.3), so drawing is always-on for now - a tool switcher becomes necessary once a
-// second tool exists to conflict with, not before.
-const PENCIL_COLOR = "#1c1a17";
-const PENCIL_WIDTH = 2;
+// Per-tool visual style. Highlighter's alpha-blending correctness for overlapping strokes
+// (avoiding a single stroke's self-overlap - or two strokes crossing - stacking darker than
+// intended) is deliberately not handled yet; this sub-task only wires tool selection through
+// to stroke creation. Simple globalAlpha compositing is a fine approximation until then.
+const TOOL_STYLES: Record<ToolId, { color: string; width: number; opacity: number }> = {
+  pencil: { color: "#1c1a17", width: 2, opacity: 1 },
+  highlighter: { color: "#ffd54a", width: 16, opacity: 0.4 },
+};
+
+function applyStrokeStyle(context: CanvasRenderingContext2D, style: { color: string; width: number; opacity: number }) {
+  context.strokeStyle = style.color;
+  context.lineWidth = style.width;
+  context.globalAlpha = style.opacity;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+}
 
 function drawStroke(context: CanvasRenderingContext2D, stroke: StrokeData) {
   if (stroke.points.length < 2) return;
 
-  context.strokeStyle = stroke.color;
-  context.lineWidth = stroke.width;
-  context.lineCap = "round";
-  context.lineJoin = "round";
+  applyStrokeStyle(context, stroke);
   context.beginPath();
   context.moveTo(stroke.points[0].x, stroke.points[0].y);
   for (const point of stroke.points.slice(1)) {
     context.lineTo(point.x, point.y);
   }
   context.stroke();
+  context.globalAlpha = 1;
 }
 
 // Deliberately depends on nothing but page dimensions and a page number - never on whether
 // the underlying page came from a native PDF or (eventually, Stage 6) a converted HTML page,
 // per US-4.6. A transparent canvas sits exactly over the rendered page canvas (same pixel
 // width/height, absolutely positioned within a wrapper the page canvas itself sizes).
-export function AnnotationLayer({ pageNumber, width, height, strokes = [], onStrokeComplete }: AnnotationLayerProps) {
+export function AnnotationLayer({ pageNumber, width, height, tool, strokes = [], onStrokeComplete }: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
   // accumulates every point of the in-progress stroke, so the whole ordered path can be
   // handed off to the parent once the stroke finishes - not just used for live drawing.
   const currentPointsRef = useRef<Point[]>([]);
+  // the tool selected when the CURRENT stroke started - if the user somehow switched tools
+  // mid-drag, the stroke should stay consistent rather than switching style partway through.
+  const activeToolRef = useRef<ToolId>(tool);
   // captured once, at mount, deliberately not kept in sync with the `strokes` prop
   // afterwards: a stroke drawn during this mount is already painted live by the pointer
   // handlers below, so redrawing on every prop change would double-paint it. This layer
@@ -83,6 +96,7 @@ export function AnnotationLayer({ pageNumber, width, height, strokes = [], onStr
 
     canvas.setPointerCapture(e.pointerId);
     drawingRef.current = true;
+    activeToolRef.current = tool;
     lastPointRef.current = point;
     currentPointsRef.current = [point];
   }
@@ -96,14 +110,12 @@ export function AnnotationLayer({ pageNumber, width, height, strokes = [], onStr
     const last = lastPointRef.current;
     if (!canvas || !context || !point || !last) return;
 
-    context.strokeStyle = PENCIL_COLOR;
-    context.lineWidth = PENCIL_WIDTH;
-    context.lineCap = "round";
-    context.lineJoin = "round";
+    applyStrokeStyle(context, TOOL_STYLES[activeToolRef.current]);
     context.beginPath();
     context.moveTo(last.x, last.y);
     context.lineTo(point.x, point.y);
     context.stroke();
+    context.globalAlpha = 1;
 
     lastPointRef.current = point;
     currentPointsRef.current.push(point);
@@ -113,7 +125,7 @@ export function AnnotationLayer({ pageNumber, width, height, strokes = [], onStr
     const points = currentPointsRef.current;
     // a plain click with no drag produces a single point - not a stroke worth keeping.
     if (drawingRef.current && points.length > 1) {
-      onStrokeComplete?.({ tool: "pencil", color: PENCIL_COLOR, width: PENCIL_WIDTH, points });
+      onStrokeComplete?.({ tool: activeToolRef.current, ...TOOL_STYLES[activeToolRef.current], points });
     }
 
     drawingRef.current = false;

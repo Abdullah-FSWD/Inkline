@@ -8,6 +8,7 @@ function mockContext() {
     lineWidth: 0,
     lineCap: "",
     lineJoin: "",
+    globalAlpha: 1,
     beginPath: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
@@ -39,7 +40,7 @@ beforeEach(() => {
 
 describe("AnnotationLayer", () => {
   it("renders a canvas sized to the given page dimensions", () => {
-    render(<AnnotationLayer pageNumber={3} width={640} height={480} />);
+    render(<AnnotationLayer pageNumber={3} width={640} height={480} tool="pencil" />);
 
     const canvas = screen.getByTestId("annotation-layer");
     expect(canvas.tagName).toBe("CANVAS");
@@ -52,7 +53,7 @@ describe("AnnotationLayer", () => {
     const ctx = mockContext();
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 10, 10);
@@ -68,7 +69,7 @@ describe("AnnotationLayer", () => {
     const ctx = mockContext();
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 0, 0);
@@ -85,7 +86,7 @@ describe("AnnotationLayer", () => {
     const ctx = mockContext();
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointermove", 20, 15);
@@ -97,7 +98,7 @@ describe("AnnotationLayer", () => {
     const ctx = mockContext();
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 0, 0);
@@ -113,7 +114,7 @@ describe("AnnotationLayer", () => {
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     const onStrokeComplete = vi.fn();
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} onStrokeComplete={onStrokeComplete} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 0, 0);
@@ -126,6 +127,7 @@ describe("AnnotationLayer", () => {
       tool: "pencil",
       color: expect.any(String),
       width: expect.any(Number),
+      opacity: expect.any(Number),
       points: [
         { x: 0, y: 0 },
         { x: 5, y: 5 },
@@ -139,7 +141,7 @@ describe("AnnotationLayer", () => {
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     const onStrokeComplete = vi.fn();
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} onStrokeComplete={onStrokeComplete} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 5, 5);
@@ -157,6 +159,7 @@ describe("AnnotationLayer", () => {
         tool: "pencil" as const,
         color: "#111111",
         width: 3,
+        opacity: 1,
         points: [
           { x: 1, y: 1 },
           { x: 2, y: 2 },
@@ -164,9 +167,10 @@ describe("AnnotationLayer", () => {
         ],
       },
       {
-        tool: "pencil" as const,
+        tool: "highlighter" as const,
         color: "#222222",
         width: 4,
+        opacity: 0.4,
         points: [
           { x: 10, y: 10 },
           { x: 20, y: 20 },
@@ -174,7 +178,7 @@ describe("AnnotationLayer", () => {
       },
     ];
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} strokes={strokes} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={strokes} />);
 
     expect(ctx.beginPath).toHaveBeenCalledTimes(2);
     expect(ctx.moveTo).toHaveBeenNthCalledWith(1, 1, 1);
@@ -194,7 +198,7 @@ describe("AnnotationLayer", () => {
     const onStrokeComplete = vi.fn();
 
     const { rerender } = render(
-      <AnnotationLayer pageNumber={1} width={100} height={150} strokes={[]} onStrokeComplete={onStrokeComplete} />
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={[]} onStrokeComplete={onStrokeComplete} />
     );
     const canvas = screen.getByTestId("annotation-layer");
 
@@ -210,6 +214,7 @@ describe("AnnotationLayer", () => {
         pageNumber={1}
         width={100}
         height={150}
+        tool="pencil"
         strokes={[strokesAfter]}
         onStrokeComplete={onStrokeComplete}
       />
@@ -223,7 +228,7 @@ describe("AnnotationLayer", () => {
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     const onStrokeComplete = vi.fn();
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} onStrokeComplete={onStrokeComplete} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 0, 0);
@@ -244,5 +249,52 @@ describe("AnnotationLayer", () => {
         ],
       })
     );
+  });
+
+  it("draws with the highlighter's wider, semi-transparent style when that tool is selected", () => {
+    const ctx = mockContext();
+    const alphaDuringStroke: number[] = [];
+    ctx.stroke.mockImplementation(() => alphaDuringStroke.push(ctx.globalAlpha));
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    const onStrokeComplete = vi.fn();
+
+    render(
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" onStrokeComplete={onStrokeComplete} />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+
+    firePointer(canvas, "pointerdown", 0, 0);
+    firePointer(canvas, "pointermove", 5, 5);
+    firePointer(canvas, "pointerup", 5, 5);
+
+    // globalAlpha was < 1 at the moment the highlighter segment was actually stroked, not
+    // just reset back to 1 afterwards.
+    expect(alphaDuringStroke[0]).toBeLessThan(1);
+    expect(ctx.globalAlpha).toBe(1);
+
+    const reported = onStrokeComplete.mock.calls[0][0];
+    expect(reported.tool).toBe("highlighter");
+    expect(reported.opacity).toBeLessThan(1);
+    expect(reported.width).toBeGreaterThan(2);
+  });
+
+  it("keeps a stroke on the tool it started with, even if the selected tool changes mid-drag", () => {
+    const ctx = mockContext();
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    const onStrokeComplete = vi.fn();
+
+    const { rerender } = render(
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+
+    firePointer(canvas, "pointerdown", 0, 0);
+    rerender(
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" onStrokeComplete={onStrokeComplete} />
+    );
+    firePointer(canvas, "pointermove", 5, 5);
+    firePointer(canvas, "pointerup", 5, 5);
+
+    expect(onStrokeComplete).toHaveBeenCalledWith(expect.objectContaining({ tool: "pencil" }));
   });
 });

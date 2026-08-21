@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Pencil, Highlighter } from "lucide-react";
 import { AnnotationLayer } from "./AnnotationLayer";
-import type { Stroke, StrokeData } from "./annotations";
+import { TOOLS, type Stroke, type StrokeData, type ToolId } from "./annotations";
+
+const TOOL_ICONS: Record<ToolId, typeof Pencil> = { pencil: Pencil, highlighter: Highlighter };
+const TOOL_LABELS: Record<ToolId, string> = { pencil: "Pencil", highlighter: "Highlighter" };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDocumentProxy = any;
 
@@ -45,6 +48,9 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   // `key={currentPage}` below), which would otherwise wipe out a page's strokes the moment
   // you navigated away from it.
   const [strokesByPage, setStrokesByPage] = useState<Record<number, Stroke[]>>({});
+  // the selected tool applies across the whole document, not per page - unlike strokes, it
+  // isn't reset on page navigation or document switch.
+  const [tool, setTool] = useState<ToolId>("pencil");
 
   // Load the PDF document once per fileUrl and cache it - later page changes (US-3.2's
   // next/prev controls) reuse this instance instead of re-fetching the whole file.
@@ -209,6 +215,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
               pageNumber={currentPage}
               width={pageSize.width}
               height={pageSize.height}
+              tool={tool}
               strokes={strokesByPage[currentPage]}
               onStrokeComplete={handleStrokeComplete}
             />
@@ -223,6 +230,29 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
           all - `showToolbar` is the reader's own explicit choice to hide all chrome). */}
       {pdf && showToolbar && (
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-surface-border bg-surface px-4 py-2">
+          <div className="flex items-center gap-1.5" role="radiogroup" aria-label="Annotation tool">
+            {TOOLS.map((id) => {
+              const Icon = TOOL_ICONS[id];
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={tool === id}
+                  aria-label={TOOL_LABELS[id]}
+                  onClick={() => setTool(id)}
+                  className={`rounded-full p-2 transition-colors ${
+                    tool === id ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-input hover:text-foreground"
+                  }`}
+                >
+                  <Icon size={18} />
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mx-1 hidden h-4 w-px bg-surface-border sm:block" />
+
           <div className="flex items-center gap-3" aria-live="polite">
             {numPages > 1 ? (
               <>

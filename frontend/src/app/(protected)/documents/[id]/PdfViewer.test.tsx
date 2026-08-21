@@ -217,6 +217,23 @@ describe("PdfViewer", () => {
     await vi.waitFor(() => expect(ctx.stroke.mock.calls.length).toBeGreaterThan(strokeCallsAfterDrawing));
   });
 
+  it("draws with pencil by default and switches to highlighter when that tool is selected", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    expect(screen.getByRole("radio", { name: /pencil/i })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /highlighter/i })).toHaveAttribute("aria-checked", "false");
+
+    await user.click(screen.getByRole("radio", { name: /highlighter/i }));
+
+    expect(screen.getByRole("radio", { name: /highlighter/i })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /pencil/i })).toHaveAttribute("aria-checked", "false");
+  });
+
   it("resets to page 1 when switching to a different document", async () => {
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
