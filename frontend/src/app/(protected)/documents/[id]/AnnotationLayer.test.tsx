@@ -148,6 +148,76 @@ describe("AnnotationLayer", () => {
     expect(onStrokeComplete).not.toHaveBeenCalled();
   });
 
+  it("redraws stored strokes on mount", () => {
+    const ctx = mockContext();
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+
+    const strokes = [
+      {
+        tool: "pencil" as const,
+        color: "#111111",
+        width: 3,
+        points: [
+          { x: 1, y: 1 },
+          { x: 2, y: 2 },
+          { x: 3, y: 3 },
+        ],
+      },
+      {
+        tool: "pencil" as const,
+        color: "#222222",
+        width: 4,
+        points: [
+          { x: 10, y: 10 },
+          { x: 20, y: 20 },
+        ],
+      },
+    ];
+
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} strokes={strokes} />);
+
+    expect(ctx.beginPath).toHaveBeenCalledTimes(2);
+    expect(ctx.moveTo).toHaveBeenNthCalledWith(1, 1, 1);
+    expect(ctx.lineTo).toHaveBeenNthCalledWith(1, 2, 2);
+    expect(ctx.lineTo).toHaveBeenNthCalledWith(2, 3, 3);
+    expect(ctx.moveTo).toHaveBeenNthCalledWith(2, 10, 10);
+    expect(ctx.lineTo).toHaveBeenNthCalledWith(3, 20, 20);
+    expect(ctx.stroke).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not redraw a stroke completed live during the current mount a second time", () => {
+    // the stroke is already painted incrementally by the pointer handlers as it's drawn;
+    // the `strokes` prop passed back down after onStrokeComplete fires must not trigger a
+    // second, redundant draw within the same mount.
+    const ctx = mockContext();
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    const onStrokeComplete = vi.fn();
+
+    const { rerender } = render(
+      <AnnotationLayer pageNumber={1} width={100} height={150} strokes={[]} onStrokeComplete={onStrokeComplete} />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+
+    firePointer(canvas, "pointerdown", 0, 0);
+    firePointer(canvas, "pointermove", 5, 5);
+    firePointer(canvas, "pointerup", 5, 5);
+
+    const strokesAfter = onStrokeComplete.mock.calls[0][0];
+    const strokeCallsBefore = ctx.stroke.mock.calls.length;
+
+    rerender(
+      <AnnotationLayer
+        pageNumber={1}
+        width={100}
+        height={150}
+        strokes={[strokesAfter]}
+        onStrokeComplete={onStrokeComplete}
+      />
+    );
+
+    expect(ctx.stroke.mock.calls.length).toBe(strokeCallsBefore);
+  });
+
   it("starts a fresh point list for each new stroke", () => {
     const ctx = mockContext();
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;

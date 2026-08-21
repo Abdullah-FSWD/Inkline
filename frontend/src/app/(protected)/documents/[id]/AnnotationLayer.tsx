@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { Point, StrokeData } from "./annotations";
 
 interface AnnotationLayerProps {
   pageNumber: number;
   width: number;
   height: number;
+  strokes?: StrokeData[];
   onStrokeComplete?: (stroke: StrokeData) => void;
 }
 
@@ -16,17 +17,48 @@ interface AnnotationLayerProps {
 const PENCIL_COLOR = "#1c1a17";
 const PENCIL_WIDTH = 2;
 
+function drawStroke(context: CanvasRenderingContext2D, stroke: StrokeData) {
+  if (stroke.points.length < 2) return;
+
+  context.strokeStyle = stroke.color;
+  context.lineWidth = stroke.width;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.beginPath();
+  context.moveTo(stroke.points[0].x, stroke.points[0].y);
+  for (const point of stroke.points.slice(1)) {
+    context.lineTo(point.x, point.y);
+  }
+  context.stroke();
+}
+
 // Deliberately depends on nothing but page dimensions and a page number - never on whether
 // the underlying page came from a native PDF or (eventually, Stage 6) a converted HTML page,
 // per US-4.6. A transparent canvas sits exactly over the rendered page canvas (same pixel
 // width/height, absolutely positioned within a wrapper the page canvas itself sizes).
-export function AnnotationLayer({ pageNumber, width, height, onStrokeComplete }: AnnotationLayerProps) {
+export function AnnotationLayer({ pageNumber, width, height, strokes = [], onStrokeComplete }: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
   // accumulates every point of the in-progress stroke, so the whole ordered path can be
   // handed off to the parent once the stroke finishes - not just used for live drawing.
   const currentPointsRef = useRef<Point[]>([]);
+  // captured once, at mount, deliberately not kept in sync with the `strokes` prop
+  // afterwards: a stroke drawn during this mount is already painted live by the pointer
+  // handlers below, so redrawing on every prop change would double-paint it. This layer
+  // remounts wholesale (`key={currentPage}`) on every page change, which is exactly when a
+  // fresh redraw-from-storage is wanted.
+  const initialStrokesRef = useRef(strokes);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!context) return;
+
+    for (const stroke of initialStrokesRef.current) {
+      drawStroke(context, stroke);
+    }
+  }, []);
 
   function getPoint(e: React.PointerEvent<HTMLCanvasElement>): Point | null {
     const canvas = canvasRef.current;

@@ -153,11 +153,10 @@ describe("PdfViewer", () => {
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
   });
 
-  it("captures a drawn stroke on the annotation layer without erroring, across a page turn", async () => {
-    // AnnotationLayer's own tests cover the point-capture logic in isolation; this is a
-    // wiring smoke test confirming PdfViewer's handleStrokeComplete plumbing (which lifts
-    // strokes into per-page state so they survive AnnotationLayer's key-based remount on
-    // page change) doesn't blow up end to end.
+  it("keeps a drawn stroke and redraws it after navigating away from and back to its page", async () => {
+    // AnnotationLayer's own tests cover point-capture and mount-time redrawing in isolation;
+    // this confirms PdfViewer's state-lifting wiring (strokesByPage, handleStrokeComplete)
+    // actually carries a stroke across the layer's key-based remount on a real page turn.
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 2 }) });
     const user = userEvent.setup();
@@ -204,15 +203,18 @@ describe("PdfViewer", () => {
     }
 
     drag();
+    const strokeCallsAfterDrawing = ctx.stroke.mock.calls.length;
+    expect(strokeCallsAfterDrawing).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: /next page/i }));
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
 
-    drag();
+    await user.click(screen.getByRole("button", { name: /previous page/i }));
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
-    // reaching here without throwing confirms handleStrokeComplete's per-page state update
-    // survives the AnnotationLayer remount that a page turn triggers.
-    expect(screen.getByTestId("annotation-layer")).toBeInTheDocument();
+    // the page-1 stroke drawn above should reappear on the freshly-remounted overlay,
+    // without needing to be drawn again by the user.
+    await vi.waitFor(() => expect(ctx.stroke.mock.calls.length).toBeGreaterThan(strokeCallsAfterDrawing));
   });
 
   it("resets to page 1 when switching to a different document", async () => {

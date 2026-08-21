@@ -29,6 +29,14 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   const [scale, setScale] = useState(DEFAULT_SCALE);
   const [fitMode, setFitMode] = useState<FitMode>(null);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+  // which page `pageSize` (and the canvas contents) actually belong to - distinct from
+  // `currentPage` because `currentPage` updates synchronously on click, while the render
+  // effect (and therefore pageSize) only catches up after an await. Gating AnnotationLayer on
+  // this instead of `!loading` avoids a real bug: without it, there's a brief render where
+  // currentPage already points at the new page but pageSize/loading are still the old page's,
+  // during which AnnotationLayer would mount with stale dimensions and immediately unmount
+  // again once `loading` catches up - a visible flash of the wrong content.
+  const [renderedPage, setRenderedPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
@@ -36,7 +44,6 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   // AnnotationLayer) because AnnotationLayer remounts on every page change (see the
   // `key={currentPage}` below), which would otherwise wipe out a page's strokes the moment
   // you navigated away from it.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- read back by US-4.1 sub-task 4 (render stored strokes on load)
   const [strokesByPage, setStrokesByPage] = useState<Record<number, Stroke[]>>({});
 
   // Load the PDF document once per fileUrl and cache it - later page changes (US-3.2's
@@ -52,6 +59,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
       setFitMode(null);
       setError(null);
       setStrokesByPage({});
+      setRenderedPage(0);
 
       try {
         const pdfjsLib = await import("pdfjs-dist");
@@ -130,6 +138,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
         await renderTask.promise;
 
         if (!cancelled) setPageSize({ width: viewport.width, height: viewport.height });
+        if (!cancelled) setRenderedPage(currentPage);
         if (!cancelled && fitMode) setScale(effectiveScale);
       } catch (err) {
         if (!cancelled) setError("Couldn't render this PDF.");
@@ -194,12 +203,13 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
         )}
         <div className={`relative h-fit ${loading ? "hidden" : ""}`}>
           <canvas ref={canvasRef} className="rounded-lg shadow-md" />
-          {!loading && (
+          {renderedPage === currentPage && (
             <AnnotationLayer
               key={currentPage}
               pageNumber={currentPage}
               width={pageSize.width}
               height={pageSize.height}
+              strokes={strokesByPage[currentPage]}
               onStrokeComplete={handleStrokeComplete}
             />
           )}
