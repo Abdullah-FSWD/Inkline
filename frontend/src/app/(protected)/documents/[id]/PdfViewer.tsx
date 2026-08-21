@@ -9,6 +9,7 @@ const MIN_SCALE = 0.6;
 const MAX_SCALE = 3;
 const SCALE_STEP = 0.2;
 const DEFAULT_SCALE = 1.4;
+const CONTAINER_PADDING_PX = 32; // p-4 on both sides of the scrollable viewport
 type FitMode = "width" | "height" | null;
 
 interface PdfViewerProps {
@@ -90,20 +91,16 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
 
         let effectiveScale = scale;
 
-        if (fitMode) {
+        if (fitMode && containerRef.current) {
           const native = page.getViewport({ scale: 1 });
-          if (fitMode === "width" && containerRef.current) {
-            effectiveScale = containerRef.current.clientWidth / native.width;
-          } else if (fitMode === "height") {
-            // getBoundingClientRect().top is relative to the current scroll position, which
-            // proved unreliable in practice: resizing the canvas below the fold can trigger
-            // the browser's scroll anchoring, shifting the page out from under this
-            // measurement between when it's read and when it's actually rendered at. Until
-            // US-3.4 builds a real fixed-height reading viewport, this uses a fixed allowance
-            // for the header/title/toolbar chrome above the page instead of a live
-            // measurement - less precise, but deterministic and free of scroll side-effects.
-            const CHROME_ALLOWANCE_PX = 260;
-            effectiveScale = (window.innerHeight - CHROME_ALLOWANCE_PX) / native.height;
+          // the viewport is now a real bounded, internally-scrolling container (the
+          // distraction-free reading shell from US-3.4), not part of the normally-flowing
+          // page - so both dimensions are a plain, reliable measurement, unlike the
+          // fixed-allowance approximation fit-height needed before this shell existed.
+          if (fitMode === "width") {
+            effectiveScale = (containerRef.current.clientWidth - CONTAINER_PADDING_PX) / native.width;
+          } else {
+            effectiveScale = (containerRef.current.clientHeight - CONTAINER_PADDING_PX) / native.height;
           }
           effectiveScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, effectiveScale));
         }
@@ -158,22 +155,24 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
 
   if (error) {
     return (
-      <p role="alert" className="py-16 text-center text-sm text-danger">
-        {error}
-      </p>
+      <div className="flex h-full items-center justify-center">
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      </div>
     );
   }
 
   return (
-    <div className="flex w-full flex-col items-center gap-4">
-      {loading && (
-        <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
-          <Loader2 size={16} className="animate-spin" />
-          Rendering document…
-        </div>
-      )}
-      <div ref={containerRef} className={`flex w-full justify-center ${loading ? "hidden" : ""}`}>
-        <canvas ref={canvasRef} className="rounded-lg shadow-md" />
+    <div className="flex h-full min-h-0 flex-col">
+      <div ref={containerRef} className="flex min-h-0 flex-1 justify-center overflow-auto p-4">
+        {loading && (
+          <div className="flex items-center gap-2 self-start text-sm text-muted-foreground">
+            <Loader2 size={16} className="animate-spin" />
+            Rendering document…
+          </div>
+        )}
+        <canvas ref={canvasRef} className={`h-fit rounded-lg shadow-md ${loading ? "hidden" : ""}`} />
       </div>
 
       {/* Persistent position indicator: gated on the document having loaded at all, not on
@@ -181,103 +180,105 @@ export function PdfViewer({ fileUrl, onLoaded }: PdfViewerProps) {
           on each turn would make it disappear and reappear constantly instead of staying
           visible "at all times during reading" as required. */}
       {pdf && (
-        <div className="flex items-center gap-3" aria-live="polite">
-          {numPages > 1 ? (
-            <>
-              <button
-                type="button"
-                aria-label="Previous page"
-                disabled={loading || currentPage <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-              >
-                <ChevronLeft size={18} />
-              </button>
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-surface-border bg-surface px-4 py-2">
+          <div className="flex items-center gap-3" aria-live="polite">
+            {numPages > 1 ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Previous page"
+                  disabled={loading || currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-input hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                >
+                  <ChevronLeft size={18} />
+                </button>
 
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  commitPageInput();
-                  pageInputRef.current?.blur();
-                }}
-                className="flex items-center gap-1.5"
-              >
-                <input
-                  key={currentPage}
-                  ref={pageInputRef}
-                  type="text"
-                  inputMode="numeric"
-                  defaultValue={currentPage}
-                  disabled={loading}
-                  aria-label="Page number"
-                  onBlur={commitPageInput}
-                  className="w-10 rounded-md border border-input-border bg-input px-1.5 py-1 text-center text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-                />
-                <span className="text-sm text-muted-foreground">/ {numPages}</span>
-              </form>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    commitPageInput();
+                    pageInputRef.current?.blur();
+                  }}
+                  className="flex items-center gap-1.5"
+                >
+                  <input
+                    key={currentPage}
+                    ref={pageInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    defaultValue={currentPage}
+                    disabled={loading}
+                    aria-label="Page number"
+                    onBlur={commitPageInput}
+                    className="w-10 rounded-md border border-input-border bg-input px-1.5 py-1 text-center text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                  />
+                  <span className="text-sm text-muted-foreground">/ {numPages}</span>
+                </form>
 
-              <button
-                type="button"
-                aria-label="Next page"
-                disabled={loading || currentPage >= numPages}
-                onClick={() => setCurrentPage((p) => Math.min(numPages, p + 1))}
-                className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-              >
-                <ChevronRight size={18} />
-              </button>
-            </>
-          ) : (
-            <span className="text-sm text-muted-foreground">Page 1 of 1</span>
-          )}
-        </div>
-      )}
+                <button
+                  type="button"
+                  aria-label="Next page"
+                  disabled={loading || currentPage >= numPages}
+                  onClick={() => setCurrentPage((p) => Math.min(numPages, p + 1))}
+                  className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-input hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </>
+            ) : (
+              <span className="text-sm text-muted-foreground">Page 1 of 1</span>
+            )}
+          </div>
 
-      {pdf && (
-        <div className="flex flex-wrap items-center justify-center gap-1.5">
-          <button
-            type="button"
-            aria-label="Zoom out"
-            disabled={loading || scale <= MIN_SCALE}
-            onClick={() => zoomBy(-1)}
-            className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-          >
-            <ZoomOut size={16} />
-          </button>
-          <span className="w-12 text-center text-sm text-muted-foreground">{Math.round((scale / DEFAULT_SCALE) * 100)}%</span>
-          <button
-            type="button"
-            aria-label="Zoom in"
-            disabled={loading || scale >= MAX_SCALE}
-            onClick={() => zoomBy(1)}
-            className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-          >
-            <ZoomIn size={16} />
-          </button>
+          <div className="mx-1 hidden h-4 w-px bg-surface-border sm:block" />
 
-          <div className="mx-1 h-4 w-px bg-surface-border" />
+          <div className="flex flex-wrap items-center justify-center gap-1.5">
+            <button
+              type="button"
+              aria-label="Zoom out"
+              disabled={loading || scale <= MIN_SCALE}
+              onClick={() => zoomBy(-1)}
+              className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-input hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+            >
+              <ZoomOut size={16} />
+            </button>
+            <span className="w-12 text-center text-sm text-muted-foreground">{Math.round((scale / DEFAULT_SCALE) * 100)}%</span>
+            <button
+              type="button"
+              aria-label="Zoom in"
+              disabled={loading || scale >= MAX_SCALE}
+              onClick={() => zoomBy(1)}
+              className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-input hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+            >
+              <ZoomIn size={16} />
+            </button>
 
-          <button
-            type="button"
-            aria-pressed={fitMode === "width"}
-            disabled={loading}
-            onClick={() => setFitMode((m) => (m === "width" ? null : "width"))}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-30 ${
-              fitMode === "width" ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-surface hover:text-foreground"
-            }`}
-          >
-            Fit width
-          </button>
-          <button
-            type="button"
-            aria-pressed={fitMode === "height"}
-            disabled={loading}
-            onClick={() => setFitMode((m) => (m === "height" ? null : "height"))}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-30 ${
-              fitMode === "height" ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-surface hover:text-foreground"
-            }`}
-          >
-            Fit height
-          </button>
+            <div className="mx-1 h-4 w-px bg-surface-border" />
+
+            <button
+              type="button"
+              aria-pressed={fitMode === "width"}
+              disabled={loading}
+              onClick={() => setFitMode((m) => (m === "width" ? null : "width"))}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-30 ${
+                fitMode === "width" ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-input hover:text-foreground"
+              }`}
+            >
+              Fit width
+            </button>
+            <button
+              type="button"
+              aria-pressed={fitMode === "height"}
+              disabled={loading}
+              onClick={() => setFitMode((m) => (m === "height" ? null : "height"))}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-30 ${
+                fitMode === "height" ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-input hover:text-foreground"
+              }`}
+            >
+              Fit height
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -88,11 +88,23 @@ export default function DocumentPage() {
     );
   }
 
+  // Distraction-free reading shell: a slim top bar (back link + title) plus PdfViewer filling
+  // the rest of the viewport (100vh minus the 4rem/h-16 global header). Unlike the marketing
+  // pages, this is a fixed-height panel with its own internal scroll region rather than a
+  // normally-flowing page - which is also what makes PdfViewer's fit-height mode an exact
+  // measurement now instead of the fixed-allowance approximation from US-3.3.
   return (
-    <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
-      {backLink}
-      <h1 className="mb-4 text-lg font-semibold text-foreground">{doc.title}</h1>
-      <PdfViewer fileUrl={getDocumentFileUrl(doc.id)} />
+    <main className="flex h-[calc(100vh-4rem)] flex-col">
+      <div className="flex shrink-0 items-center gap-3 border-b border-surface-border bg-surface px-4 py-2">
+        <Link href="/library" className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+          <ArrowLeft size={14} />
+          Back
+        </Link>
+        <h1 className="truncate text-sm font-medium text-foreground">{doc.title}</h1>
+      </div>
+      <div className="min-h-0 flex-1">
+        <PdfViewer fileUrl={getDocumentFileUrl(doc.id)} />
+      </div>
     </main>
   );
 }
