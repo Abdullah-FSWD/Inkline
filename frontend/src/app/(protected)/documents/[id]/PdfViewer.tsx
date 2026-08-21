@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
+import { AnnotationLayer } from "./AnnotationLayer";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDocumentProxy = any;
 
@@ -26,6 +27,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   const [numPages, setNumPages] = useState(1);
   const [scale, setScale] = useState(DEFAULT_SCALE);
   const [fitMode, setFitMode] = useState<FitMode>(null);
+  const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
@@ -119,6 +121,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
         renderTask = page.render({ canvasContext: context, viewport, canvas });
         await renderTask.promise;
 
+        if (!cancelled) setPageSize({ width: viewport.width, height: viewport.height });
         if (!cancelled && fitMode) setScale(effectiveScale);
       } catch (err) {
         if (!cancelled) setError("Couldn't render this PDF.");
@@ -173,7 +176,10 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
             Rendering document…
           </div>
         )}
-        <canvas ref={canvasRef} className={`h-fit rounded-lg shadow-md ${loading ? "hidden" : ""}`} />
+        <div className={`relative h-fit ${loading ? "hidden" : ""}`}>
+          <canvas ref={canvasRef} className="rounded-lg shadow-md" />
+          {!loading && <AnnotationLayer key={currentPage} pageNumber={currentPage} width={pageSize.width} height={pageSize.height} />}
+        </div>
       </div>
 
       {/* Persistent position indicator: gated on the document having loaded at all, not on

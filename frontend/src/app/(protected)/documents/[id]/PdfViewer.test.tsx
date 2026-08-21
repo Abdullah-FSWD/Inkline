@@ -375,4 +375,37 @@ describe("PdfViewer", () => {
 
     expect(screen.getByRole("button", { name: /zoom in/i })).toBeInTheDocument();
   });
+
+  it("overlays an annotation layer matching the rendered page's exact pixel dimensions", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
+
+    const overlay = await screen.findByTestId("annotation-layer");
+    expect(overlay).toHaveAttribute("width", "100");
+    expect(overlay).toHaveAttribute("height", "150");
+    expect(overlay).toHaveAttribute("data-page-number", "1");
+  });
+
+  it("remounts the annotation layer (fresh, empty canvas) when the page changes", async () => {
+    const page = mockPage();
+    getPage.mockResolvedValue(page);
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 2 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+    const firstOverlay = await screen.findByTestId("annotation-layer");
+    expect(firstOverlay).toHaveAttribute("data-page-number", "1");
+
+    await user.click(screen.getByRole("button", { name: /next page/i }));
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+
+    const secondOverlay = await screen.findByTestId("annotation-layer");
+    expect(secondOverlay).toHaveAttribute("data-page-number", "2");
+    expect(secondOverlay).not.toBe(firstOverlay);
+  });
 });
