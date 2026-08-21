@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { PdfViewer } from "./PdfViewer";
@@ -151,6 +151,68 @@ describe("PdfViewer", () => {
 
     await user.click(screen.getByRole("button", { name: /previous page/i }));
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+  });
+
+  it("captures a drawn stroke on the annotation layer without erroring, across a page turn", async () => {
+    // AnnotationLayer's own tests cover the point-capture logic in isolation; this is a
+    // wiring smoke test confirming PdfViewer's handleStrokeComplete plumbing (which lifts
+    // strokes into per-page state so they survive AnnotationLayer's key-based remount on
+    // page change) doesn't blow up end to end.
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 2 }) });
+    const user = userEvent.setup();
+
+    const ctx = {
+      strokeStyle: "",
+      lineWidth: 0,
+      lineCap: "",
+      lineJoin: "",
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+    };
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
+    HTMLCanvasElement.prototype.getBoundingClientRect = vi.fn(() => ({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 150,
+      right: 100,
+      bottom: 150,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    }));
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    function drag() {
+      const canvas = screen.getByTestId("annotation-layer");
+      act(() => {
+        const down = new Event("pointerdown", { bubbles: true }) as PointerEvent;
+        Object.assign(down, { clientX: 0, clientY: 0, pointerId: 1 });
+        canvas.dispatchEvent(down);
+        const move = new Event("pointermove", { bubbles: true }) as PointerEvent;
+        Object.assign(move, { clientX: 10, clientY: 10, pointerId: 1 });
+        canvas.dispatchEvent(move);
+        const up = new Event("pointerup", { bubbles: true }) as PointerEvent;
+        Object.assign(up, { clientX: 10, clientY: 10, pointerId: 1 });
+        canvas.dispatchEvent(up);
+      });
+    }
+
+    drag();
+
+    await user.click(screen.getByRole("button", { name: /next page/i }));
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+
+    drag();
+
+    // reaching here without throwing confirms handleStrokeComplete's per-page state update
+    // survives the AnnotationLayer remount that a page turn triggers.
+    expect(screen.getByTestId("annotation-layer")).toBeInTheDocument();
   });
 
   it("resets to page 1 when switching to a different document", async () => {

@@ -107,4 +107,72 @@ describe("AnnotationLayer", () => {
 
     expect(ctx.stroke).toHaveBeenCalledTimes(1);
   });
+
+  it("reports the full ordered point list and style on stroke completion", () => {
+    const ctx = mockContext();
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    const onStrokeComplete = vi.fn();
+
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} onStrokeComplete={onStrokeComplete} />);
+    const canvas = screen.getByTestId("annotation-layer");
+
+    firePointer(canvas, "pointerdown", 0, 0);
+    firePointer(canvas, "pointermove", 5, 5);
+    firePointer(canvas, "pointermove", 10, 10);
+    firePointer(canvas, "pointerup", 10, 10);
+
+    expect(onStrokeComplete).toHaveBeenCalledTimes(1);
+    expect(onStrokeComplete).toHaveBeenCalledWith({
+      tool: "pencil",
+      color: expect.any(String),
+      width: expect.any(Number),
+      points: [
+        { x: 0, y: 0 },
+        { x: 5, y: 5 },
+        { x: 10, y: 10 },
+      ],
+    });
+  });
+
+  it("does not report a stroke for a click with no movement", () => {
+    const ctx = mockContext();
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    const onStrokeComplete = vi.fn();
+
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} onStrokeComplete={onStrokeComplete} />);
+    const canvas = screen.getByTestId("annotation-layer");
+
+    firePointer(canvas, "pointerdown", 5, 5);
+    firePointer(canvas, "pointerup", 5, 5);
+
+    expect(onStrokeComplete).not.toHaveBeenCalled();
+  });
+
+  it("starts a fresh point list for each new stroke", () => {
+    const ctx = mockContext();
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    const onStrokeComplete = vi.fn();
+
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} onStrokeComplete={onStrokeComplete} />);
+    const canvas = screen.getByTestId("annotation-layer");
+
+    firePointer(canvas, "pointerdown", 0, 0);
+    firePointer(canvas, "pointermove", 5, 5);
+    firePointer(canvas, "pointerup", 5, 5);
+
+    firePointer(canvas, "pointerdown", 50, 50);
+    firePointer(canvas, "pointermove", 60, 60);
+    firePointer(canvas, "pointerup", 60, 60);
+
+    expect(onStrokeComplete).toHaveBeenCalledTimes(2);
+    expect(onStrokeComplete).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        points: [
+          { x: 50, y: 50 },
+          { x: 60, y: 60 },
+        ],
+      })
+    );
+  });
 });

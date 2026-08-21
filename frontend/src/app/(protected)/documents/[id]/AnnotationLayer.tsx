@@ -1,11 +1,13 @@
 "use client";
 
 import { useRef } from "react";
+import type { Point, StrokeData } from "./annotations";
 
 interface AnnotationLayerProps {
   pageNumber: number;
   width: number;
   height: number;
+  onStrokeComplete?: (stroke: StrokeData) => void;
 }
 
 // Pencil is the only annotation tool that exists yet (highlighter/underline come in
@@ -14,19 +16,17 @@ interface AnnotationLayerProps {
 const PENCIL_COLOR = "#1c1a17";
 const PENCIL_WIDTH = 2;
 
-interface Point {
-  x: number;
-  y: number;
-}
-
 // Deliberately depends on nothing but page dimensions and a page number - never on whether
 // the underlying page came from a native PDF or (eventually, Stage 6) a converted HTML page,
 // per US-4.6. A transparent canvas sits exactly over the rendered page canvas (same pixel
 // width/height, absolutely positioned within a wrapper the page canvas itself sizes).
-export function AnnotationLayer({ pageNumber, width, height }: AnnotationLayerProps) {
+export function AnnotationLayer({ pageNumber, width, height, onStrokeComplete }: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
+  // accumulates every point of the in-progress stroke, so the whole ordered path can be
+  // handed off to the parent once the stroke finishes - not just used for live drawing.
+  const currentPointsRef = useRef<Point[]>([]);
 
   function getPoint(e: React.PointerEvent<HTMLCanvasElement>): Point | null {
     const canvas = canvasRef.current;
@@ -52,6 +52,7 @@ export function AnnotationLayer({ pageNumber, width, height }: AnnotationLayerPr
     canvas.setPointerCapture(e.pointerId);
     drawingRef.current = true;
     lastPointRef.current = point;
+    currentPointsRef.current = [point];
   }
 
   function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
@@ -73,11 +74,19 @@ export function AnnotationLayer({ pageNumber, width, height }: AnnotationLayerPr
     context.stroke();
 
     lastPointRef.current = point;
+    currentPointsRef.current.push(point);
   }
 
   function endStroke() {
+    const points = currentPointsRef.current;
+    // a plain click with no drag produces a single point - not a stroke worth keeping.
+    if (drawingRef.current && points.length > 1) {
+      onStrokeComplete?.({ tool: "pencil", color: PENCIL_COLOR, width: PENCIL_WIDTH, points });
+    }
+
     drawingRef.current = false;
     lastPointRef.current = null;
+    currentPointsRef.current = [];
   }
 
   return (

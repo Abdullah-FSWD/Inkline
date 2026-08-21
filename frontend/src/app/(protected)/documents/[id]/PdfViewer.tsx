@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { AnnotationLayer } from "./AnnotationLayer";
+import type { Stroke, StrokeData } from "./annotations";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDocumentProxy = any;
 
@@ -31,6 +32,12 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
+  // strokes for the whole document, keyed by page number - lives here (not inside
+  // AnnotationLayer) because AnnotationLayer remounts on every page change (see the
+  // `key={currentPage}` below), which would otherwise wipe out a page's strokes the moment
+  // you navigated away from it.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- read back by US-4.1 sub-task 4 (render stored strokes on load)
+  const [strokesByPage, setStrokesByPage] = useState<Record<number, Stroke[]>>({});
 
   // Load the PDF document once per fileUrl and cache it - later page changes (US-3.2's
   // next/prev controls) reuse this instance instead of re-fetching the whole file.
@@ -44,6 +51,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
       setScale(DEFAULT_SCALE);
       setFitMode(null);
       setError(null);
+      setStrokesByPage({});
 
       try {
         const pdfjsLib = await import("pdfjs-dist");
@@ -139,6 +147,14 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
     };
   }, [pdf, currentPage, scale, fitMode]);
 
+  function handleStrokeComplete(stroke: StrokeData) {
+    const withId: Stroke = { ...stroke, id: crypto.randomUUID(), pageNumber: currentPage };
+    setStrokesByPage((prev) => ({
+      ...prev,
+      [currentPage]: [...(prev[currentPage] ?? []), withId],
+    }));
+  }
+
   function commitPageInput() {
     const raw = pageInputRef.current?.value ?? "";
     const parsed = Number.parseInt(raw, 10);
@@ -178,7 +194,15 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
         )}
         <div className={`relative h-fit ${loading ? "hidden" : ""}`}>
           <canvas ref={canvasRef} className="rounded-lg shadow-md" />
-          {!loading && <AnnotationLayer key={currentPage} pageNumber={currentPage} width={pageSize.width} height={pageSize.height} />}
+          {!loading && (
+            <AnnotationLayer
+              key={currentPage}
+              pageNumber={currentPage}
+              width={pageSize.width}
+              height={pageSize.height}
+              onStrokeComplete={handleStrokeComplete}
+            />
+          )}
         </div>
       </div>
 
