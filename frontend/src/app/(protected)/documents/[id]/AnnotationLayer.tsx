@@ -12,33 +12,54 @@ interface AnnotationLayerProps {
   onStrokeComplete?: (stroke: StrokeData) => void;
 }
 
-// Per-tool visual style. Highlighter's alpha-blending correctness for overlapping strokes
-// (avoiding a single stroke's self-overlap - or two strokes crossing - stacking darker than
-// intended) is deliberately not handled yet; this sub-task only wires tool selection through
-// to stroke creation. Simple globalAlpha compositing is a fine approximation until then.
 const TOOL_STYLES: Record<ToolId, { color: string; width: number; opacity: number }> = {
   pencil: { color: "#1c1a17", width: 2, opacity: 1 },
   highlighter: { color: "#ffd54a", width: 16, opacity: 0.4 },
 };
 
-function applyStrokeStyle(context: CanvasRenderingContext2D, style: { color: string; width: number; opacity: number }) {
+function setStrokeAppearance(context: CanvasRenderingContext2D, style: { color: string; width: number }) {
   context.strokeStyle = style.color;
   context.lineWidth = style.width;
-  context.globalAlpha = style.opacity;
   context.lineCap = "round";
   context.lineJoin = "round";
 }
 
-function drawStroke(context: CanvasRenderingContext2D, stroke: StrokeData) {
-  if (stroke.points.length < 2) return;
-
-  applyStrokeStyle(context, stroke);
+function tracePath(context: CanvasRenderingContext2D, points: Point[]) {
   context.beginPath();
-  context.moveTo(stroke.points[0].x, stroke.points[0].y);
-  for (const point of stroke.points.slice(1)) {
+  context.moveTo(points[0].x, points[0].y);
+  for (const point of points.slice(1)) {
     context.lineTo(point.x, point.y);
   }
-  context.stroke();
+}
+
+// Redraws one already-completed stroke (used for mount-time restore). A semi-transparent
+// stroke is first traced onto a full-opacity offscreen buffer and composited onto the real
+// canvas in a single drawImage - tracing it directly with globalAlpha applied per-segment
+// would let a self-intersecting path (e.g. a looped highlight) stack darker where it crosses
+// itself, since each overlapping segment would blend independently. An opaque stroke (pencil)
+// has no such risk - opaque-over-opaque looks identical either way - so it skips the buffer.
+function drawStroke(context: CanvasRenderingContext2D, stroke: StrokeData, canvasWidth: number, canvasHeight: number) {
+  if (stroke.points.length < 2) return;
+
+  if (stroke.opacity >= 1) {
+    setStrokeAppearance(context, stroke);
+    tracePath(context, stroke.points);
+    context.stroke();
+    return;
+  }
+
+  const buffer = document.createElement("canvas");
+  buffer.width = canvasWidth;
+  buffer.height = canvasHeight;
+  const bufferContext = buffer.getContext("2d");
+  if (!bufferContext) return;
+
+  setStrokeAppearance(bufferContext, stroke);
+  tracePath(bufferContext, stroke.points);
+  bufferContext.stroke();
+
+  context.globalAlpha = stroke.opacity;
+  context.drawImage(buffer, 0, 0);
   context.globalAlpha = 1;
 }
 
@@ -56,6 +77,13 @@ export function AnnotationLayer({ pageNumber, width, height, tool, strokes = [],
   // the tool selected when the CURRENT stroke started - if the user somehow switched tools
   // mid-drag, the stroke should stay consistent rather than switching style partway through.
   const activeToolRef = useRef<ToolId>(tool);
+  // live-drawing buffers for a semi-transparent stroke in progress: `snapshotRef` is the
+  // canvas's pixels as they were right before this stroke started, `bufferRef` accumulates
+  // this stroke's own ink at full opacity as the pointer moves. Each move restores the
+  // snapshot then composites the buffer on top at the tool's target opacity, in one shot -
+  // the same self-overlap fix as `drawStroke`, but applied live rather than after the fact.
+  const snapshotRef = useRef<HTMLCanvasElement | null>(null);
+  const bufferRef = useRef<HTMLCanvasElement | null>(null);
   // captured once, at mount, deliberately not kept in sync with the `strokes` prop
   // afterwards: a stroke drawn during this mount is already painted live by the pointer
   // handlers below, so redrawing on every prop change would double-paint it. This layer
@@ -66,10 +94,17 @@ export function AnnotationLayer({ pageNumber, width, height, tool, strokes = [],
   useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
-    if (!context) return;
+    if (!canvas || !context) return;
+
+    // idempotency matters here, not just tidiness: React (in dev, under StrictMode) can and
+    // does invoke a mount effect's setup twice in a row. Redrawing a fully-opaque stroke
+    // twice looks identical either way, but redrawing a semi-transparent one twice silently
+    // stacks its alpha (0.4 twice ≈ 0.64) - a real bug that only shows up for non-opaque
+    // tools. Clearing first makes the effect correct regardless of how many times it runs.
+    context.clearRect(0, 0, canvas.width, canvas.height);
 
     for (const stroke of initialStrokesRef.current) {
-      drawStroke(context, stroke);
+      drawStroke(context, stroke, canvas.width, canvas.height);
     }
   }, []);
 
@@ -99,6 +134,16 @@ export function AnnotationLayer({ pageNumber, width, height, tool, strokes = [],
     activeToolRef.current = tool;
     lastPointRef.current = point;
     currentPointsRef.current = [point];
+
+    if (TOOL_STYLES[tool].opacity < 1) {
+      if (!snapshotRef.current) snapshotRef.current = document.createElement("canvas");
+      if (!bufferRef.current) bufferRef.current = document.createElement("canvas");
+      snapshotRef.current.width = canvas.width;
+      snapshotRef.current.height = canvas.height;
+      bufferRef.current.width = canvas.width;
+      bufferRef.current.height = canvas.height;
+      snapshotRef.current.getContext("2d")?.drawImage(canvas, 0, 0);
+    }
   }
 
   function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
@@ -110,12 +155,40 @@ export function AnnotationLayer({ pageNumber, width, height, tool, strokes = [],
     const last = lastPointRef.current;
     if (!canvas || !context || !point || !last) return;
 
-    applyStrokeStyle(context, TOOL_STYLES[activeToolRef.current]);
-    context.beginPath();
-    context.moveTo(last.x, last.y);
-    context.lineTo(point.x, point.y);
-    context.stroke();
-    context.globalAlpha = 1;
+    const style = TOOL_STYLES[activeToolRef.current];
+
+    if (style.opacity < 1) {
+      const buffer = bufferRef.current;
+      const snapshot = snapshotRef.current;
+      const bufferContext = buffer?.getContext("2d");
+      if (!buffer || !snapshot || !bufferContext) return;
+
+      // accumulate this stroke's shape on the buffer at full opacity - overlapping
+      // segments within the same stroke just stay opaque, they don't stack.
+      setStrokeAppearance(bufferContext, style);
+      bufferContext.beginPath();
+      bufferContext.moveTo(last.x, last.y);
+      bufferContext.lineTo(point.x, point.y);
+      bufferContext.stroke();
+
+      // repaint from the pre-stroke snapshot, then composite the whole buffer once at the
+      // target opacity - so the visible result is always "one" blend, never several. A plain
+      // drawImage of the snapshot is not enough: under the default source-over compositing, a
+      // transparent snapshot pixel leaves whatever's already on the canvas untouched, so the
+      // previous move's partial composite would never actually get cleared - clearRect first.
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.globalAlpha = 1;
+      context.drawImage(snapshot, 0, 0);
+      context.globalAlpha = style.opacity;
+      context.drawImage(buffer, 0, 0);
+      context.globalAlpha = 1;
+    } else {
+      setStrokeAppearance(context, style);
+      context.beginPath();
+      context.moveTo(last.x, last.y);
+      context.lineTo(point.x, point.y);
+      context.stroke();
+    }
 
     lastPointRef.current = point;
     currentPointsRef.current.push(point);

@@ -14,8 +14,9 @@ vi.mock("pdfjs-dist", () => ({
 beforeEach(() => {
   getPage.mockReset();
   getDocument.mockReset();
-  // jsdom's canvas has no real 2D rendering context by default
-  HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({}) as never;
+  // jsdom's canvas has no real 2D rendering context by default. AnnotationLayer's mount
+  // effect unconditionally calls clearRect (even with zero stored strokes), so it must exist.
+  HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({ clearRect: vi.fn() }) as never;
 });
 
 function deferred<T>() {
@@ -170,6 +171,8 @@ describe("PdfViewer", () => {
       moveTo: vi.fn(),
       lineTo: vi.fn(),
       stroke: vi.fn(),
+      drawImage: vi.fn(),
+      clearRect: vi.fn(),
     };
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     HTMLCanvasElement.prototype.setPointerCapture = vi.fn();

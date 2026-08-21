@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { AnnotationLayer } from "./AnnotationLayer";
@@ -13,7 +14,30 @@ function mockContext() {
     moveTo: vi.fn(),
     lineTo: vi.fn(),
     stroke: vi.fn(),
+    drawImage: vi.fn(),
+    clearRect: vi.fn(),
   };
+}
+type MockContext = ReturnType<typeof mockContext>;
+
+// A real canvas returns the SAME context object on every getContext() call for that specific
+// element. AnnotationLayer relies on this (main canvas, plus its own offscreen buffer/snapshot
+// canvases for semi-transparent tools), so the mock has to key by canvas identity rather than
+// return one shared object - otherwise the buffer/snapshot/main canvases would be
+// indistinguishable in assertions, and the component's own repeated getContext() calls on the
+// same element wouldn't see consistent state either.
+let contextsByCanvas: WeakMap<HTMLCanvasElement, MockContext>;
+
+function mockCanvasContexts() {
+  contextsByCanvas = new WeakMap();
+  HTMLCanvasElement.prototype.getContext = vi.fn(function (this: HTMLCanvasElement) {
+    if (!contextsByCanvas.has(this)) contextsByCanvas.set(this, mockContext());
+    return contextsByCanvas.get(this);
+  }) as never;
+}
+
+function mainContextOf(canvas: HTMLElement) {
+  return contextsByCanvas.get(canvas as HTMLCanvasElement)!;
 }
 
 function firePointer(canvas: HTMLElement, type: string, x: number, y: number, pointerId = 1) {
@@ -36,6 +60,7 @@ beforeEach(() => {
     y: 0,
     toJSON: () => {},
   }));
+  mockCanvasContexts();
 });
 
 describe("AnnotationLayer", () => {
@@ -50,11 +75,9 @@ describe("AnnotationLayer", () => {
   });
 
   it("draws a line segment on the canvas while dragging", () => {
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
-
     render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
     const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
 
     firePointer(canvas, "pointerdown", 10, 10);
     firePointer(canvas, "pointermove", 20, 15);
@@ -66,11 +89,9 @@ describe("AnnotationLayer", () => {
   });
 
   it("draws a continuous multi-segment stroke as the pointer keeps moving", () => {
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
-
     render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
     const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
 
     firePointer(canvas, "pointerdown", 0, 0);
     firePointer(canvas, "pointermove", 5, 5);
@@ -83,11 +104,9 @@ describe("AnnotationLayer", () => {
   });
 
   it("does not draw on pointer move before a pointer down", () => {
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
-
     render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
     const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
 
     firePointer(canvas, "pointermove", 20, 15);
 
@@ -95,11 +114,9 @@ describe("AnnotationLayer", () => {
   });
 
   it("stops drawing after pointer up, requiring a new pointer down to resume", () => {
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
-
     render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
     const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
 
     firePointer(canvas, "pointerdown", 0, 0);
     firePointer(canvas, "pointermove", 5, 5);
@@ -110,8 +127,6 @@ describe("AnnotationLayer", () => {
   });
 
   it("reports the full ordered point list and style on stroke completion", () => {
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     const onStrokeComplete = vi.fn();
 
     render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />);
@@ -137,8 +152,6 @@ describe("AnnotationLayer", () => {
   });
 
   it("does not report a stroke for a click with no movement", () => {
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     const onStrokeComplete = vi.fn();
 
     render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />);
@@ -150,10 +163,7 @@ describe("AnnotationLayer", () => {
     expect(onStrokeComplete).not.toHaveBeenCalled();
   });
 
-  it("redraws stored strokes on mount", () => {
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
-
+  it("redraws a stored opaque stroke directly on the main canvas", () => {
     const strokes = [
       {
         tool: "pencil" as const,
@@ -166,41 +176,101 @@ describe("AnnotationLayer", () => {
           { x: 3, y: 3 },
         ],
       },
+    ];
+
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={strokes} />);
+    const ctx = mainContextOf(screen.getByTestId("annotation-layer"));
+
+    expect(ctx.beginPath).toHaveBeenCalledTimes(1);
+    expect(ctx.moveTo).toHaveBeenCalledWith(1, 1);
+    expect(ctx.lineTo).toHaveBeenCalledWith(2, 2);
+    expect(ctx.lineTo).toHaveBeenCalledWith(3, 3);
+    expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    // an opaque stroke is traced directly - it has no self-overlap risk, so no buffer needed
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+  });
+
+  it("redraws a stored semi-transparent stroke via a single composite, at the stored opacity", () => {
+    const strokes = [
       {
         tool: "highlighter" as const,
-        color: "#222222",
-        width: 4,
+        color: "#ffd54a",
+        width: 16,
         opacity: 0.4,
         points: [
           { x: 10, y: 10 },
-          { x: 20, y: 20 },
+          { x: 20, y: 10 },
         ],
       },
     ];
 
     render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={strokes} />);
+    const ctx = mainContextOf(screen.getByTestId("annotation-layer"));
 
-    expect(ctx.beginPath).toHaveBeenCalledTimes(2);
-    expect(ctx.moveTo).toHaveBeenNthCalledWith(1, 1, 1);
-    expect(ctx.lineTo).toHaveBeenNthCalledWith(1, 2, 2);
-    expect(ctx.lineTo).toHaveBeenNthCalledWith(2, 3, 3);
-    expect(ctx.moveTo).toHaveBeenNthCalledWith(2, 10, 10);
-    expect(ctx.lineTo).toHaveBeenNthCalledWith(3, 20, 20);
-    expect(ctx.stroke).toHaveBeenCalledTimes(2);
+    // composited once via drawImage, not traced directly on the main canvas - that's what
+    // lets a self-intersecting stored stroke avoid stacking alpha where it crosses itself.
+    expect(ctx.beginPath).not.toHaveBeenCalled();
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+    expect(ctx.globalAlpha).toBe(1);
+  });
+
+  it("redraws a stored semi-transparent stroke at the same opacity even if the mount effect runs twice", () => {
+    // regression guard: React (StrictMode, dev-only) intentionally double-invokes a mount
+    // effect's setup. Redrawing an opaque stroke twice is visually identical either way, but
+    // redrawing a semi-transparent one twice silently stacked its alpha (0.4 twice -> ~0.64)
+    // until the mount effect started clearing the canvas first.
+    const strokes = [
+      {
+        tool: "highlighter" as const,
+        color: "#ffd54a",
+        width: 16,
+        opacity: 0.4,
+        points: [
+          { x: 10, y: 10 },
+          { x: 20, y: 10 },
+        ],
+      },
+    ];
+
+    render(
+      <StrictMode>
+        <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={strokes} />
+      </StrictMode>
+    );
+    const ctx = mainContextOf(screen.getByTestId("annotation-layer"));
+
+    // StrictMode may run the mount effect's setup more than once (dev-only), so the canvas
+    // could legitimately get redrawn more than once - what must never happen is a composite
+    // landing on top of a PREVIOUS composite without a clear in between, which is what would
+    // silently stack the alpha. Reconstruct call order via vitest's invocationCallOrder
+    // rather than assuming a fixed number of invocations.
+    const calls = [
+      ...ctx.clearRect.mock.invocationCallOrder.map((order) => ({ order, type: "clear" as const })),
+      ...ctx.drawImage.mock.invocationCallOrder.map((order) => ({ order, type: "draw" as const })),
+    ].sort((a, b) => a.order - b.order);
+
+    expect(calls.some((c) => c.type === "draw")).toBe(true);
+    let sinceLastDraw = 0;
+    for (const call of calls) {
+      if (call.type === "clear") sinceLastDraw++;
+      else {
+        expect(sinceLastDraw).toBeGreaterThan(0);
+        sinceLastDraw = 0;
+      }
+    }
   });
 
   it("does not redraw a stroke completed live during the current mount a second time", () => {
     // the stroke is already painted incrementally by the pointer handlers as it's drawn;
     // the `strokes` prop passed back down after onStrokeComplete fires must not trigger a
     // second, redundant draw within the same mount.
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     const onStrokeComplete = vi.fn();
 
     const { rerender } = render(
       <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={[]} onStrokeComplete={onStrokeComplete} />
     );
     const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
 
     firePointer(canvas, "pointerdown", 0, 0);
     firePointer(canvas, "pointermove", 5, 5);
@@ -224,8 +294,6 @@ describe("AnnotationLayer", () => {
   });
 
   it("starts a fresh point list for each new stroke", () => {
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     const onStrokeComplete = vi.fn();
 
     render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />);
@@ -252,24 +320,21 @@ describe("AnnotationLayer", () => {
   });
 
   it("draws with the highlighter's wider, semi-transparent style when that tool is selected", () => {
-    const ctx = mockContext();
-    const alphaDuringStroke: number[] = [];
-    ctx.stroke.mockImplementation(() => alphaDuringStroke.push(ctx.globalAlpha));
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     const onStrokeComplete = vi.fn();
 
     render(
       <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" onStrokeComplete={onStrokeComplete} />
     );
     const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
 
     firePointer(canvas, "pointerdown", 0, 0);
     firePointer(canvas, "pointermove", 5, 5);
     firePointer(canvas, "pointerup", 5, 5);
 
-    // globalAlpha was < 1 at the moment the highlighter segment was actually stroked, not
-    // just reset back to 1 afterwards.
-    expect(alphaDuringStroke[0]).toBeLessThan(1);
+    // live highlighter drawing composites onto the main canvas via drawImage at < 1 opacity,
+    // rather than tracing the path directly on it at full alpha.
+    expect(ctx.drawImage).toHaveBeenCalled();
     expect(ctx.globalAlpha).toBe(1);
 
     const reported = onStrokeComplete.mock.calls[0][0];
@@ -278,9 +343,42 @@ describe("AnnotationLayer", () => {
     expect(reported.width).toBeGreaterThan(2);
   });
 
+  it("does not stack alpha where a single highlighter stroke crosses itself", () => {
+    // regression guard for the self-overlap blending bug: without buffering, each segment of
+    // a looped/self-intersecting drag would composite at the tool's opacity independently,
+    // making the crossing point visibly darker than the rest of the stroke. The buffered
+    // implementation composites the whole accumulated shape once per move, so the composite
+    // step's opacity should stay pinned at the tool's own opacity throughout the drag,
+    // never drifting from repeated blending.
+    const onStrokeComplete = vi.fn();
+
+    render(
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" onStrokeComplete={onStrokeComplete} />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
+
+    const alphaAtEachComposite: number[] = [];
+    ctx.drawImage.mockImplementation(() => alphaAtEachComposite.push(ctx.globalAlpha));
+
+    // a self-crossing loop: right, down, back left through the same x-range, up again
+    firePointer(canvas, "pointerdown", 0, 0);
+    firePointer(canvas, "pointermove", 20, 0);
+    firePointer(canvas, "pointermove", 20, 20);
+    firePointer(canvas, "pointermove", 0, 20);
+    firePointer(canvas, "pointermove", 0, 0);
+    firePointer(canvas, "pointermove", 20, 0);
+    firePointer(canvas, "pointerup", 20, 0);
+
+    // the buffer composite is drawImage'd every move; the SECOND drawImage per move is the
+    // one applying the tool's opacity (the first restores the pre-stroke snapshot at alpha 1).
+    const compositeAlphas = alphaAtEachComposite.filter((a) => a < 1);
+    expect(compositeAlphas.length).toBeGreaterThan(0);
+    expect(new Set(compositeAlphas).size).toBe(1);
+    expect(compositeAlphas[0]).toBeCloseTo(0.4);
+  });
+
   it("keeps a stroke on the tool it started with, even if the selected tool changes mid-drag", () => {
-    const ctx = mockContext();
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
     const onStrokeComplete = vi.fn();
 
     const { rerender } = render(
