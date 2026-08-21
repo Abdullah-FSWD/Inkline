@@ -3,8 +3,11 @@ export interface Point {
   y: number;
 }
 
-export const TOOLS = ["pencil", "highlighter"] as const;
+export const TOOLS = ["pencil", "highlighter", "underline"] as const;
 export type ToolId = (typeof TOOLS)[number];
+
+export const DRAW_MODES = ["straight", "freehand"] as const;
+export type DrawMode = (typeof DRAW_MODES)[number];
 
 // What AnnotationLayer itself knows about a stroke it just finished drawing - everything
 // about *how* it was drawn. The parent (PdfViewer) is the one that knows *where* (which page),

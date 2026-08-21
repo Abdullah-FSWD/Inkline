@@ -237,6 +237,32 @@ describe("PdfViewer", () => {
     expect(screen.getByRole("radio", { name: /pencil/i })).toHaveAttribute("aria-checked", "false");
   });
 
+  it("only shows the straight/freehand mode toggle when the underline tool is selected", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    expect(screen.queryByRole("radio", { name: /straight line/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /freehand/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: /underline/i }));
+
+    expect(screen.getByRole("radio", { name: /straight line/i })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /freehand/i })).toHaveAttribute("aria-checked", "false");
+
+    await user.click(screen.getByRole("radio", { name: /freehand/i }));
+
+    expect(screen.getByRole("radio", { name: /freehand/i })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /straight line/i })).toHaveAttribute("aria-checked", "false");
+
+    await user.click(screen.getByRole("radio", { name: /^pencil/i }));
+
+    expect(screen.queryByRole("radio", { name: /straight line/i })).not.toBeInTheDocument();
+  });
+
   it("resets to page 1 when switching to a different document", async () => {
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });

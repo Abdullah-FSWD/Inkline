@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { Point, StrokeData, ToolId } from "./annotations";
+import type { DrawMode, Point, StrokeData, ToolId } from "./annotations";
 
 interface AnnotationLayerProps {
   pageNumber: number;
   width: number;
   height: number;
   tool: ToolId;
+  // only meaningful for tools that support more than one drawing mode (currently just
+  // underline); ignored by tools that only ever draw freehand.
+  mode?: DrawMode;
   strokes?: StrokeData[];
   onStrokeComplete?: (stroke: StrokeData) => void;
 }
@@ -15,6 +18,7 @@ interface AnnotationLayerProps {
 const TOOL_STYLES: Record<ToolId, { color: string; width: number; opacity: number }> = {
   pencil: { color: "#1c1a17", width: 2, opacity: 1 },
   highlighter: { color: "#ffd54a", width: 16, opacity: 0.4 },
+  underline: { color: "#dc2626", width: 2.5, opacity: 1 },
 };
 
 function setStrokeAppearance(context: CanvasRenderingContext2D, style: { color: string; width: number }) {
@@ -67,21 +71,27 @@ function drawStroke(context: CanvasRenderingContext2D, stroke: StrokeData, canva
 // the underlying page came from a native PDF or (eventually, Stage 6) a converted HTML page,
 // per US-4.6. A transparent canvas sits exactly over the rendered page canvas (same pixel
 // width/height, absolutely positioned within a wrapper the page canvas itself sizes).
-export function AnnotationLayer({ pageNumber, width, height, tool, strokes = [], onStrokeComplete }: AnnotationLayerProps) {
+export function AnnotationLayer({ pageNumber, width, height, tool, mode = "freehand", strokes = [], onStrokeComplete }: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
+  // where the CURRENT stroke started - only used by straight-line mode, which always draws a
+  // single segment from here to wherever the pointer currently is, replacing the previous
+  // preview rather than accumulating segments like freehand drawing does.
+  const firstPointRef = useRef<Point | null>(null);
   // accumulates every point of the in-progress stroke, so the whole ordered path can be
   // handed off to the parent once the stroke finishes - not just used for live drawing.
   const currentPointsRef = useRef<Point[]>([]);
-  // the tool selected when the CURRENT stroke started - if the user somehow switched tools
-  // mid-drag, the stroke should stay consistent rather than switching style partway through.
+  // the tool/mode selected when the CURRENT stroke started - if the user somehow switches
+  // either mid-drag, the stroke should stay consistent rather than changing partway through.
   const activeToolRef = useRef<ToolId>(tool);
-  // live-drawing buffers for a semi-transparent stroke in progress: `snapshotRef` is the
-  // canvas's pixels as they were right before this stroke started, `bufferRef` accumulates
-  // this stroke's own ink at full opacity as the pointer moves. Each move restores the
-  // snapshot then composites the buffer on top at the tool's target opacity, in one shot -
-  // the same self-overlap fix as `drawStroke`, but applied live rather than after the fact.
+  const activeModeRef = useRef<DrawMode>(mode);
+  // live-drawing buffers for a stroke in progress. `snapshotRef` holds the canvas's pixels as
+  // they were right before this stroke started; used to erase and redraw a straight-line
+  // preview on every move, and (together with `bufferRef`, which accumulates this stroke's
+  // own ink at full opacity) to composite a semi-transparent freehand stroke once per move
+  // rather than blending each segment independently - the same self-overlap fix `drawStroke`
+  // applies after the fact, applied live here instead.
   const snapshotRef = useRef<HTMLCanvasElement | null>(null);
   const bufferRef = useRef<HTMLCanvasElement | null>(null);
   // captured once, at mount, deliberately not kept in sync with the `strokes` prop
@@ -132,17 +142,22 @@ export function AnnotationLayer({ pageNumber, width, height, tool, strokes = [],
     canvas.setPointerCapture(e.pointerId);
     drawingRef.current = true;
     activeToolRef.current = tool;
+    activeModeRef.current = mode;
     lastPointRef.current = point;
+    firstPointRef.current = point;
     currentPointsRef.current = [point];
 
-    if (TOOL_STYLES[tool].opacity < 1) {
+    const needsSnapshot = mode === "straight" || TOOL_STYLES[tool].opacity < 1;
+    if (needsSnapshot) {
       if (!snapshotRef.current) snapshotRef.current = document.createElement("canvas");
-      if (!bufferRef.current) bufferRef.current = document.createElement("canvas");
       snapshotRef.current.width = canvas.width;
       snapshotRef.current.height = canvas.height;
+      snapshotRef.current.getContext("2d")?.drawImage(canvas, 0, 0);
+    }
+    if (mode !== "straight" && TOOL_STYLES[tool].opacity < 1) {
+      if (!bufferRef.current) bufferRef.current = document.createElement("canvas");
       bufferRef.current.width = canvas.width;
       bufferRef.current.height = canvas.height;
-      snapshotRef.current.getContext("2d")?.drawImage(canvas, 0, 0);
     }
   }
 
@@ -156,6 +171,30 @@ export function AnnotationLayer({ pageNumber, width, height, tool, strokes = [],
     if (!canvas || !context || !point || !last) return;
 
     const style = TOOL_STYLES[activeToolRef.current];
+
+    if (activeModeRef.current === "straight") {
+      const snapshot = snapshotRef.current;
+      const first = firstPointRef.current;
+      if (!snapshot || !first) return;
+
+      // erase the previous preview by restoring the pre-stroke snapshot, then draw a single
+      // fresh segment from the start point to wherever the pointer is now - a straight-line
+      // preview replaces itself each move rather than accumulating like freehand does.
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.globalAlpha = 1;
+      context.drawImage(snapshot, 0, 0);
+      setStrokeAppearance(context, style);
+      context.globalAlpha = style.opacity;
+      context.beginPath();
+      context.moveTo(first.x, first.y);
+      context.lineTo(point.x, point.y);
+      context.stroke();
+      context.globalAlpha = 1;
+
+      lastPointRef.current = point;
+      currentPointsRef.current = [first, point];
+      return;
+    }
 
     if (style.opacity < 1) {
       const buffer = bufferRef.current;

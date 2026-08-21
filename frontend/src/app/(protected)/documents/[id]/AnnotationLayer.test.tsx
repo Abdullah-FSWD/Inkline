@@ -395,4 +395,100 @@ describe("AnnotationLayer", () => {
 
     expect(onStrokeComplete).toHaveBeenCalledWith(expect.objectContaining({ tool: "pencil" }));
   });
+
+  it("draws a straight-line preview from the start point to the current point, replacing itself each move", () => {
+    const onStrokeComplete = vi.fn();
+
+    render(
+      <AnnotationLayer
+        pageNumber={1}
+        width={100}
+        height={150}
+        tool="underline"
+        mode="straight"
+        onStrokeComplete={onStrokeComplete}
+      />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
+
+    firePointer(canvas, "pointerdown", 0, 0);
+    firePointer(canvas, "pointermove", 10, 0);
+    firePointer(canvas, "pointermove", 40, 0);
+    firePointer(canvas, "pointerup", 40, 0);
+
+    // every move restores the snapshot (erasing the previous preview) before drawing exactly
+    // one fresh segment - never accumulating multiple segments like freehand does.
+    expect(ctx.drawImage).toHaveBeenCalledTimes(2);
+    expect(ctx.moveTo).toHaveBeenNthCalledWith(1, 0, 0);
+    expect(ctx.lineTo).toHaveBeenNthCalledWith(1, 10, 0);
+    expect(ctx.moveTo).toHaveBeenNthCalledWith(2, 0, 0);
+    expect(ctx.lineTo).toHaveBeenNthCalledWith(2, 40, 0);
+
+    expect(onStrokeComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool: "underline",
+        points: [
+          { x: 0, y: 0 },
+          { x: 40, y: 0 },
+        ],
+      })
+    );
+  });
+
+  it("draws underline freehand exactly like pencil when mode is freehand", () => {
+    const onStrokeComplete = vi.fn();
+
+    render(
+      <AnnotationLayer
+        pageNumber={1}
+        width={100}
+        height={150}
+        tool="underline"
+        mode="freehand"
+        onStrokeComplete={onStrokeComplete}
+      />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
+
+    firePointer(canvas, "pointerdown", 0, 0);
+    firePointer(canvas, "pointermove", 5, 5);
+    firePointer(canvas, "pointermove", 10, 10);
+    firePointer(canvas, "pointerup", 10, 10);
+
+    // freehand accumulates every point rather than replacing a single preview segment.
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+    expect(ctx.stroke).toHaveBeenCalledTimes(2);
+    expect(onStrokeComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        points: [
+          { x: 0, y: 0 },
+          { x: 5, y: 5 },
+          { x: 10, y: 10 },
+        ],
+      })
+    );
+  });
+
+  it("does not report a straight-line stroke for a click with no movement", () => {
+    const onStrokeComplete = vi.fn();
+
+    render(
+      <AnnotationLayer
+        pageNumber={1}
+        width={100}
+        height={150}
+        tool="underline"
+        mode="straight"
+        onStrokeComplete={onStrokeComplete}
+      />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+
+    firePointer(canvas, "pointerdown", 5, 5);
+    firePointer(canvas, "pointerup", 5, 5);
+
+    expect(onStrokeComplete).not.toHaveBeenCalled();
+  });
 });

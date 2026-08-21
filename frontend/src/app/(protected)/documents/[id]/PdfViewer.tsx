@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Pencil, Highlighter } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Pencil, Highlighter, Underline, Slash, Spline } from "lucide-react";
 import { AnnotationLayer } from "./AnnotationLayer";
-import { TOOLS, type Stroke, type StrokeData, type ToolId } from "./annotations";
+import { DRAW_MODES, TOOLS, type DrawMode, type Stroke, type StrokeData, type ToolId } from "./annotations";
 
-const TOOL_ICONS: Record<ToolId, typeof Pencil> = { pencil: Pencil, highlighter: Highlighter };
-const TOOL_LABELS: Record<ToolId, string> = { pencil: "Pencil", highlighter: "Highlighter" };
+const TOOL_ICONS: Record<ToolId, typeof Pencil> = { pencil: Pencil, highlighter: Highlighter, underline: Underline };
+const TOOL_LABELS: Record<ToolId, string> = { pencil: "Pencil", highlighter: "Highlighter", underline: "Underline" };
+const MODE_ICONS: Record<DrawMode, typeof Slash> = { straight: Slash, freehand: Spline };
+const MODE_LABELS: Record<DrawMode, string> = { straight: "Straight line", freehand: "Freehand" };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDocumentProxy = any;
 
@@ -51,6 +53,9 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   // the selected tool applies across the whole document, not per page - unlike strokes, it
   // isn't reset on page navigation or document switch.
   const [tool, setTool] = useState<ToolId>("pencil");
+  // only meaningful for the underline tool (US-4.3) - pencil/highlighter always draw
+  // freehand. Defaults to straight since underlining text is the more common case.
+  const [drawMode, setDrawMode] = useState<DrawMode>("straight");
 
   // Load the PDF document once per fileUrl and cache it - later page changes (US-3.2's
   // next/prev controls) reuse this instance instead of re-fetching the whole file.
@@ -216,6 +221,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
               width={pageSize.width}
               height={pageSize.height}
               tool={tool}
+              mode={drawMode}
               strokes={strokesByPage[currentPage]}
               onStrokeComplete={handleStrokeComplete}
             />
@@ -250,6 +256,29 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
               );
             })}
           </div>
+
+          {tool === "underline" && (
+            <div className="flex items-center gap-1.5" role="radiogroup" aria-label="Underline mode">
+              {DRAW_MODES.map((id) => {
+                const Icon = MODE_ICONS[id];
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={drawMode === id}
+                    aria-label={MODE_LABELS[id]}
+                    onClick={() => setDrawMode(id)}
+                    className={`rounded-full p-2 transition-colors ${
+                      drawMode === id ? "bg-accent/10 text-accent" : "text-muted-foreground hover:bg-input hover:text-foreground"
+                    }`}
+                  >
+                    <Icon size={16} />
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <div className="mx-1 hidden h-4 w-px bg-surface-border sm:block" />
 
