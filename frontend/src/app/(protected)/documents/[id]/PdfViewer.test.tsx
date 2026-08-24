@@ -660,6 +660,59 @@ describe("PdfViewer", () => {
     });
   });
 
+  describe("visual reading-progress bar (US-5.2)", () => {
+    it("reflects the current page as a fraction of the total, alongside the page indicator", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 4 }) });
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      const bar = screen.getByRole("progressbar", { name: /reading progress/i });
+      expect(bar).toHaveAttribute("aria-valuenow", "1");
+      expect(bar).toHaveAttribute("aria-valuemin", "1");
+      expect(bar).toHaveAttribute("aria-valuemax", "4");
+      expect(bar).toHaveStyle({ width: "25%" });
+    });
+
+    it("updates as the reader navigates pages", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 4 }) });
+      const user = userEvent.setup();
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      await user.click(screen.getByRole("button", { name: /next page/i }));
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+
+      const bar = screen.getByRole("progressbar", { name: /reading progress/i });
+      expect(bar).toHaveAttribute("aria-valuenow", "2");
+      expect(bar).toHaveStyle({ width: "50%" });
+    });
+
+    it("shows full progress on a single-page document", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      const bar = screen.getByRole("progressbar", { name: /reading progress/i });
+      expect(bar).toHaveStyle({ width: "100%" });
+    });
+
+    it("is hidden along with the rest of the toolbar when showToolbar is false", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 4 }) });
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" showToolbar={false} />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      expect(screen.queryByRole("progressbar", { name: /reading progress/i })).not.toBeInTheDocument();
+    });
+  });
+
   it("jumps to a typed page number on Enter", async () => {
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 5 }) });

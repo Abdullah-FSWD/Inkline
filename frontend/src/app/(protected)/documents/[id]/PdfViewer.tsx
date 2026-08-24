@@ -530,7 +530,19 @@ export function PdfViewer({ fileUrl, documentId, initialPage = 1, onLoaded, show
           visible "at all times during reading" as required (while the toolbar is shown at
           all - `showToolbar` is the reader's own explicit choice to hide all chrome). */}
       {pdf && showToolbar && (
-        <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-surface-border bg-surface px-4 py-2">
+        <div className="relative flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-surface-border bg-surface px-4 py-2">
+          {/* Visual position marker (US-5.2): a thin bar tracking overall document progress,
+              alongside the "Page X / Y" text below rather than replacing it. */}
+          <div
+            role="progressbar"
+            aria-label="Reading progress"
+            aria-valuenow={currentPage}
+            aria-valuemin={1}
+            aria-valuemax={numPages}
+            className="absolute left-0 top-0 h-0.5 bg-accent transition-[width] duration-200"
+            style={{ width: `${(currentPage / numPages) * 100}%` }}
+          />
+
           <button
             type="button"
             aria-label="Undo"
