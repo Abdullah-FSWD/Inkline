@@ -90,4 +90,48 @@ describe("LibraryPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't delete this document/i);
     expect(screen.getByText("My Report")).toBeInTheDocument();
   });
+
+  it("polls while a document is still processing, and picks up its transition to ready", async () => {
+    // an HTML upload converts in the background (US-1.3) - the library has to notice the
+    // transition on its own, since nothing else prompts a refetch after the initial load.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const processingDoc = {
+      id: "1",
+      title: "Article",
+      sourceType: "html",
+      status: "processing",
+      updatedAt: "2026-01-15T00:00:00.000Z",
+      createdAt: "2026-01-15T00:00:00.000Z",
+    };
+    mockedListDocuments.mockResolvedValueOnce([processingDoc]);
+    mockedListDocuments.mockResolvedValueOnce([{ ...processingDoc, status: "ready" }]);
+
+    render(<LibraryPage />);
+    await screen.findByText(/processing/i);
+    expect(mockedListDocuments).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(mockedListDocuments).toHaveBeenCalledTimes(2);
+    await screen.findByText(/ready/i);
+
+    // now that it's ready, another interval tick should NOT trigger a further poll -
+    // nothing left to wait on.
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(mockedListDocuments).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("never polls when nothing is processing (the common case: PDFs are always immediately ready)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockedListDocuments.mockResolvedValueOnce(oneDocument);
+
+    render(<LibraryPage />);
+    await screen.findByText("My Report");
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(mockedListDocuments).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
 });

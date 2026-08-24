@@ -20,18 +20,38 @@ beforeEach(() => {
 });
 
 describe("UploadPanel", () => {
-  it("rejects a non-PDF file dropped onto the dropzone, without calling the API", async () => {
+  it("rejects a file dropped onto the dropzone that's neither PDF nor HTML, without calling the API", async () => {
     // drag-and-drop bypasses the file input's `accept` filter (both in real browsers and
     // in user-event), so this is the realistic path for exercising the rejection branch -
     // a plain input.upload() of a mismatched file never reaches onChange at all.
     render(<UploadPanel />);
 
-    const dropzone = screen.getByRole("button", { name: /choose a pdf/i });
+    const dropzone = screen.getByRole("button", { name: /choose a pdf or html file/i });
     const file = new File(["hi"], "notes.txt", { type: "text/plain" });
     fireEvent.drop(dropzone, { dataTransfer: { files: [file] } });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/only pdf files/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/only pdf and html files/i);
     expect(mockedUpload).not.toHaveBeenCalled();
+  });
+
+  it("accepts an HTML file selected via the file input", async () => {
+    mockedUpload.mockResolvedValueOnce({
+      id: "1",
+      title: "article",
+      sourceType: "html",
+      status: "processing",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const user = userEvent.setup();
+    render(<UploadPanel />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File(["<html></html>"], "article.html", { type: "text/html" }));
+    expect(screen.getByText("article.html")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^upload$/i }));
+    expect(await screen.findByRole("status")).toHaveTextContent("article");
+    expect(mockedUpload).toHaveBeenCalledWith(expect.any(File), expect.any(Function));
   });
 
   it("uploads a selected PDF and shows a success message with the returned title", async () => {

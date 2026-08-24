@@ -25,8 +25,9 @@ export function UploadPanel({ onUploaded }: { onUploaded?: (doc: UploadedDocumen
   }
 
   function selectFile(candidate: File) {
-    if (!candidate.name.toLowerCase().endsWith(".pdf")) {
-      setError("Only PDF files are supported right now.");
+    const name = candidate.name.toLowerCase();
+    if (!name.endsWith(".pdf") && !name.endsWith(".html") && !name.endsWith(".htm")) {
+      setError("Only PDF and HTML files are supported.");
       setStatus("error");
       return;
     }
@@ -97,7 +98,7 @@ export function UploadPanel({ onUploaded }: { onUploaded?: (doc: UploadedDocumen
             <input
               ref={inputRef}
               type="file"
-              accept=".pdf,application/pdf"
+              accept=".pdf,application/pdf,.html,.htm,text/html"
               className="hidden"
               onChange={(e) => {
                 const selected = e.target.files?.[0];
@@ -124,7 +125,7 @@ export function UploadPanel({ onUploaded }: { onUploaded?: (doc: UploadedDocumen
               <>
                 <UploadCloud size={28} className="text-muted-foreground" strokeWidth={1.75} />
                 <p className="text-sm text-foreground">
-                  <span className="font-medium text-accent">Choose a PDF</span> or drag it here
+                  <span className="font-medium text-accent">Choose a PDF or HTML file</span> or drag it here
                 </p>
               </>
             )}
