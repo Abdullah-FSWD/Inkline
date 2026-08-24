@@ -114,16 +114,34 @@ export interface DocumentSummary {
   createdAt: string;
 }
 
+export interface DocumentDetail extends DocumentSummary {
+  lastReadPage: number;
+}
+
 export function listDocuments(): Promise<DocumentSummary[]> {
   return getJson("/documents");
 }
 
-export function getDocument(id: string): Promise<DocumentSummary> {
+export function getDocument(id: string): Promise<DocumentDetail> {
   return getJson(`/documents/${id}`);
 }
 
 export function getDocumentFileUrl(id: string): string {
   return `${API_URL}/documents/${id}/file`;
+}
+
+export async function updateReadingPosition(id: string, page: number): Promise<void> {
+  const res = await fetch(`${API_URL}/documents/${id}/position`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ page }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Something went wrong.", res.status);
+  }
 }
 
 export async function deleteDocument(id: string): Promise<void> {

@@ -218,6 +218,94 @@ describe("GET /documents/:id", () => {
     const res = await agent.get("/documents/not-a-valid-object-id");
     expect(res.status).toBe(404);
   });
+
+  it("defaults lastReadPage to 1 for a freshly uploaded document", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-freshpos.pdf");
+
+    const res = await agent.get(`/documents/${upload.body.id}`);
+    expect(res.body.lastReadPage).toBe(1);
+  });
+});
+
+describe("PATCH /documents/:id/position", () => {
+  it("rejects an unauthenticated request", async () => {
+    const res = await request(app).patch("/documents/000000000000000000000000/position").send({ page: 3 });
+    expect(res.status).toBe(401);
+  });
+
+  it("updates lastReadPage and it's reflected on a subsequent GET", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-position1.pdf");
+
+    const res = await agent.patch(`/documents/${upload.body.id}/position`).send({ page: 7 });
+    expect(res.status).toBe(204);
+
+    const get = await agent.get(`/documents/${upload.body.id}`);
+    expect(get.body.lastReadPage).toBe(7);
+  });
+
+  it("does not bump updatedAt (a reading-position update isn't a content change)", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-position2.pdf");
+    const before = (await DocumentModel.findById(upload.body.id))!.updatedAt;
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await agent.patch(`/documents/${upload.body.id}/position`).send({ page: 4 });
+
+    const after = (await DocumentModel.findById(upload.body.id))!.updatedAt;
+    expect(after.getTime()).toBe(before.getTime());
+  });
+
+  it("rejects a non-positive page", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-position3.pdf");
+
+    const res = await agent.patch(`/documents/${upload.body.id}/position`).send({ page: 0 });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a non-integer page", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-position4.pdf");
+
+    const res = await agent.patch(`/documents/${upload.body.id}/position`).send({ page: 2.5 });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 (not 403) for another user's document, and does not update it", async () => {
+    const emailA = uniqueEmail();
+    const agentA = request.agent(app);
+    await agentA.post("/auth/signup").send({ email: emailA, password: "correct-horse" });
+    const upload = await agentA.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-position5.pdf");
+
+    const emailB = uniqueEmail();
+    const agentB = request.agent(app);
+    await agentB.post("/auth/signup").send({ email: emailB, password: "correct-horse" });
+
+    const res = await agentB.patch(`/documents/${upload.body.id}/position`).send({ page: 9 });
+    expect(res.status).toBe(404);
+    expect((await DocumentModel.findById(upload.body.id))!.lastReadPage).toBe(1);
+  });
+
+  it("returns 404 for a nonexistent document id", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent.patch("/documents/000000000000000000000000/position").send({ page: 2 });
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("GET /documents/:id/file", () => {

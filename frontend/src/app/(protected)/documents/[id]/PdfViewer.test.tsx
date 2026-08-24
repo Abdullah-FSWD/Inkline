@@ -8,6 +8,7 @@ const getDocument = vi.fn();
 const listAnnotations = vi.fn();
 const createAnnotation = vi.fn();
 const deleteAnnotation = vi.fn();
+const updateReadingPosition = vi.fn();
 
 vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: {},
@@ -18,12 +19,14 @@ vi.mock("@/lib/api", () => ({
   listAnnotations: (...args: unknown[]) => listAnnotations(...args),
   createAnnotation: (...args: unknown[]) => createAnnotation(...args),
   deleteAnnotation: (...args: unknown[]) => deleteAnnotation(...args),
+  updateReadingPosition: (...args: unknown[]) => updateReadingPosition(...args),
 }));
 
 beforeEach(() => {
   getPage.mockReset();
   getDocument.mockReset();
   listAnnotations.mockReset().mockResolvedValue([]);
+  updateReadingPosition.mockReset().mockResolvedValue(undefined);
   let nextServerId = 1;
   createAnnotation.mockReset().mockImplementation(async (_documentId: string, stroke: object) => ({
     id: `server-${nextServerId++}`,
@@ -582,6 +585,79 @@ describe("PdfViewer", () => {
 
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
     expect(getPage).not.toHaveBeenCalledWith(2);
+  });
+
+  describe("resuming and saving reading position (US-5.1)", () => {
+    it("opens on the given initialPage instead of page 1", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 5 }) });
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" initialPage={3} />);
+
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(3));
+      expect(getPage).not.toHaveBeenCalledWith(1);
+    });
+
+    it("clamps a stale initialPage past the document's actual length", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" initialPage={99} />);
+
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(3));
+    });
+
+    it("defaults to page 1 when no initialPage is given", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 5 }) });
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+    });
+
+    it("saves the reading position after navigating to a page", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+      const user = userEvent.setup();
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+      updateReadingPosition.mockClear();
+
+      await user.click(screen.getByRole("button", { name: /next page/i }));
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+
+      await vi.waitFor(() => expect(updateReadingPosition).toHaveBeenCalledWith("1", 2), { timeout: 3000 });
+    });
+
+    it("saves the position once the initial page finishes rendering too, not just on navigation", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" initialPage={2} />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+
+      await vi.waitFor(() => expect(updateReadingPosition).toHaveBeenCalledWith("1", 2), { timeout: 3000 });
+    });
+
+    it("switching documents saves position under the new document's own id, not the old one", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+
+      const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+      await vi.waitFor(() => expect(updateReadingPosition).toHaveBeenCalledWith("1", 1), { timeout: 3000 });
+
+      updateReadingPosition.mockClear();
+      getPage.mockClear();
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 2 }) });
+      rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" documentId="2" initialPage={2} />);
+
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+      await vi.waitFor(() => expect(updateReadingPosition).toHaveBeenCalledWith("2", 2), { timeout: 3000 });
+      expect(updateReadingPosition).not.toHaveBeenCalledWith("1", expect.anything());
+    });
   });
 
   it("jumps to a typed page number on Enter", async () => {

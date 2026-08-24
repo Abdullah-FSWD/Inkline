@@ -25,8 +25,15 @@ describe("Document model", () => {
 
     expect(doc.status).toBe("processing");
     expect(doc.pageCount).toBe(0);
+    expect(doc.lastReadPage).toBe(1);
     expect(doc.createdAt).toBeInstanceOf(Date);
     expect(doc.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it("rejects a lastReadPage below 1", async () => {
+    await expect(
+      DocumentModel.create({ ...baseFields(), title: "Bad", sourceType: "pdf", lastReadPage: 0 })
+    ).rejects.toThrow();
   });
 
   it("rejects an invalid sourceType", async () => {

@@ -18,7 +18,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { AnnotationLayer, type AnnotationLayerHandle } from "./AnnotationLayer";
-import { listAnnotations, createAnnotation, deleteAnnotation } from "@/lib/api";
+import { listAnnotations, createAnnotation, deleteAnnotation, updateReadingPosition } from "@/lib/api";
 import {
   COLOR_PALETTE,
   DEFAULT_TOOL_STYLE,
@@ -78,11 +78,15 @@ type FitMode = "width" | "height" | null;
 interface PdfViewerProps {
   fileUrl: string;
   documentId: string;
+  // the page to open on (US-5.1) - defaults to 1 for a document with no prior reading
+  // position. Only consulted once, when the document first loads; page navigation afterward
+  // doesn't re-read it.
+  initialPage?: number;
   onLoaded?: (numPages: number) => void;
   showToolbar?: boolean;
 }
 
-export function PdfViewer({ fileUrl, documentId, onLoaded, showToolbar = true }: PdfViewerProps) {
+export function PdfViewer({ fileUrl, documentId, initialPage = 1, onLoaded, showToolbar = true }: PdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const annotationLayerRef = useRef<AnnotationLayerHandle>(null);
@@ -211,7 +215,7 @@ export function PdfViewer({ fileUrl, documentId, onLoaded, showToolbar = true }:
 
     async function load() {
       setPdf(null);
-      setCurrentPage(1);
+      setCurrentPage(initialPage);
       setNumPages(1);
       setScale(DEFAULT_SCALE);
       setFitMode(null);
@@ -237,6 +241,9 @@ export function PdfViewer({ fileUrl, documentId, onLoaded, showToolbar = true }:
 
         setPdf(loaded);
         setNumPages(loaded.numPages);
+        // a stale saved position past the document's actual length (e.g. re-uploaded with
+        // fewer pages) would otherwise ask pdf.js to render a page that doesn't exist.
+        setCurrentPage((p) => Math.min(p, loaded.numPages));
         onLoaded?.(loaded.numPages);
       } catch (err) {
         if (!cancelled) setError("Couldn't load this PDF.");
@@ -249,7 +256,7 @@ export function PdfViewer({ fileUrl, documentId, onLoaded, showToolbar = true }:
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoaded is a callback, not reactive state
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoaded is a callback, not reactive state; initialPage is deliberately only consulted on this initial load, not on every prop change
   }, [fileUrl]);
 
   // Loads previously-saved annotations once per document (US-4.7) and buckets them by page,
@@ -272,10 +279,10 @@ export function PdfViewer({ fileUrl, documentId, onLoaded, showToolbar = true }:
 
         // the current page's AnnotationLayer may already have mounted (and captured its
         // now-stale, empty initial strokes) before this fetch resolved - force a redraw.
-        // A freshly-opened document always starts on page 1, so that's what to redraw with;
-        // `currentPage` itself isn't a safe read here since this effect intentionally doesn't
-        // re-run on page navigation.
-        annotationLayerRef.current?.redraw(bucketed[1] ?? []);
+        // A freshly-opened document always starts on `initialPage` (US-5.1), so that's what
+        // to redraw with; `currentPage` itself isn't a safe read here since this effect
+        // intentionally doesn't re-run on page navigation.
+        annotationLayerRef.current?.redraw(bucketed[initialPage] ?? []);
       } catch (err) {
         console.error("Failed to load annotations", err);
         showSyncError("Couldn't load saved annotations for this document.");
@@ -287,6 +294,7 @@ export function PdfViewer({ fileUrl, documentId, onLoaded, showToolbar = true }:
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialPage is deliberately only read once, at the same "document just opened" moment this effect fires on
   }, [documentId]);
 
   // Render whichever page is current whenever the loaded document, requested page, scale, or
@@ -353,6 +361,24 @@ export function PdfViewer({ fileUrl, documentId, onLoaded, showToolbar = true }:
       renderTask?.cancel();
     };
   }, [pdf, currentPage, scale, fitMode]);
+
+  // Saves the reading position (US-5.1) once the current page has actually rendered - gated
+  // on `renderedPage === currentPage` rather than `currentPage` alone so a quick flip through
+  // several pages doesn't save each one in turn, only the page the reader settles on.
+  // Debounced further on top of that so rapid navigation doesn't fire a request per page.
+  // Best-effort: unlike annotations, losing a reading-position update isn't worth retrying or
+  // surfacing to the reader.
+  useEffect(() => {
+    if (renderedPage !== currentPage) return;
+
+    const timeout = setTimeout(() => {
+      updateReadingPosition(documentId, currentPage).catch((err) => {
+        console.error("Failed to save reading position", err);
+      });
+    }, 800);
+
+    return () => clearTimeout(timeout);
+  }, [documentId, currentPage, renderedPage]);
 
   function handleStrokeComplete(stroke: StrokeData) {
     const clientId = crypto.randomUUID();

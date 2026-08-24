@@ -45,9 +45,33 @@ documentsRouter.get("/:id", async (req, res) => {
     title: document.title,
     sourceType: document.sourceType,
     status: document.status,
+    lastReadPage: document.lastReadPage,
     updatedAt: document.updatedAt,
     createdAt: document.createdAt,
   });
+});
+
+documentsRouter.patch("/:id/position", async (req, res) => {
+  const document = await DocumentModel.findOne({ _id: req.params.id, ownerId: req.userId }).catch(() => null);
+
+  if (!document) {
+    res.status(404).json({ error: "Document not found." });
+    return;
+  }
+
+  const page = req.body?.page;
+  if (!Number.isInteger(page) || page < 1) {
+    res.status(400).json({ error: "page must be a positive integer." });
+    return;
+  }
+
+  document.lastReadPage = page;
+  // reading position is a lightweight, frequently-updated preference, not meaningful content -
+  // bumping updatedAt (and so the library's "recently updated" sort order) on every page turn
+  // would be surprising, so skip Mongoose's automatic timestamp update for this one write.
+  await document.save({ timestamps: false });
+
+  res.status(204).send();
 });
 
 documentsRouter.get("/:id/file", async (req, res) => {

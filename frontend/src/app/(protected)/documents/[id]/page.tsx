@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, ArrowLeft, TriangleAlert, PanelTopClose, PanelTopOpen } from "lucide-react";
-import { getDocument, getDocumentFileUrl, ApiError, type DocumentSummary } from "@/lib/api";
+import { getDocument, getDocumentFileUrl, ApiError, type DocumentDetail } from "@/lib/api";
 import { PdfViewer } from "./PdfViewer";
 
 export default function DocumentPage() {
   const { id } = useParams<{ id: string }>();
-  const [doc, setDocument] = useState<DocumentSummary | null>(null);
+  const [doc, setDocument] = useState<DocumentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [toolbarsVisible, setToolbarsVisible] = useState(true);
@@ -120,7 +120,12 @@ export default function DocumentPage() {
       </button>
 
       <div className="min-h-0 flex-1">
-        <PdfViewer fileUrl={getDocumentFileUrl(doc.id)} documentId={doc.id} showToolbar={toolbarsVisible} />
+        <PdfViewer
+          fileUrl={getDocumentFileUrl(doc.id)}
+          documentId={doc.id}
+          initialPage={doc.lastReadPage}
+          showToolbar={toolbarsVisible}
+        />
       </div>
     </main>
   );

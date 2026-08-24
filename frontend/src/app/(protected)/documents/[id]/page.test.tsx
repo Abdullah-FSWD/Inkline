@@ -39,6 +39,7 @@ describe("DocumentPage", () => {
       status: "ready",
       updatedAt: "2026-01-01T00:00:00.000Z",
       createdAt: "2026-01-01T00:00:00.000Z",
+      lastReadPage: 1,
     });
 
     render(<DocumentPage />);
@@ -57,6 +58,7 @@ describe("DocumentPage", () => {
       status: "processing",
       updatedAt: "2026-01-01T00:00:00.000Z",
       createdAt: "2026-01-01T00:00:00.000Z",
+      lastReadPage: 1,
     });
 
     render(<DocumentPage />);
@@ -73,6 +75,7 @@ describe("DocumentPage", () => {
       status: "failed",
       updatedAt: "2026-01-01T00:00:00.000Z",
       createdAt: "2026-01-01T00:00:00.000Z",
+      lastReadPage: 1,
     });
 
     render(<DocumentPage />);
@@ -98,6 +101,7 @@ describe("DocumentPage", () => {
       status: "ready",
       updatedAt: "2026-01-01T00:00:00.000Z",
       createdAt: "2026-01-01T00:00:00.000Z",
+      lastReadPage: 1,
     });
     const user = userEvent.setup();
 
