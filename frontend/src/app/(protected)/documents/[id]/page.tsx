@@ -120,7 +120,7 @@ export default function DocumentPage() {
       </button>
 
       <div className="min-h-0 flex-1">
-        <PdfViewer fileUrl={getDocumentFileUrl(doc.id)} showToolbar={toolbarsVisible} />
+        <PdfViewer fileUrl={getDocumentFileUrl(doc.id)} documentId={doc.id} showToolbar={toolbarsVisible} />
       </div>
     </main>
   );

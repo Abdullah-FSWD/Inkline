@@ -17,8 +17,8 @@ vi.mock("next/navigation", () => ({
 // pdfjs-dist mocked; here we only need to confirm the page hands it the right file URL
 // and toolbar-visibility prop.
 vi.mock("./PdfViewer", () => ({
-  PdfViewer: ({ fileUrl, showToolbar }: { fileUrl: string; showToolbar: boolean }) => (
-    <div data-testid="pdf-viewer" data-show-toolbar={String(showToolbar)}>
+  PdfViewer: ({ fileUrl, documentId, showToolbar }: { fileUrl: string; documentId: string; showToolbar: boolean }) => (
+    <div data-testid="pdf-viewer" data-document-id={documentId} data-show-toolbar={String(showToolbar)}>
       {fileUrl}
     </div>
   ),
@@ -45,6 +45,7 @@ describe("DocumentPage", () => {
 
     expect(await screen.findByText("My Report")).toBeInTheDocument();
     expect(screen.getByTestId("pdf-viewer")).toHaveTextContent("/documents/42/file");
+    expect(screen.getByTestId("pdf-viewer")).toHaveAttribute("data-document-id", "42");
     expect(mockedGetDocument).toHaveBeenCalledWith("42");
   });
 

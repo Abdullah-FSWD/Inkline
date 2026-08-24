@@ -134,3 +134,36 @@ export async function deleteDocument(id: string): Promise<void> {
     throw new ApiError(data.error ?? "Something went wrong.", res.status);
   }
 }
+
+export interface AnnotationInput {
+  pageNumber: number;
+  tool: string;
+  color: string;
+  width: number;
+  opacity: number;
+  points: { x: number; y: number }[];
+}
+
+export interface AnnotationRecord extends AnnotationInput {
+  id: string;
+}
+
+export function listAnnotations(documentId: string): Promise<AnnotationRecord[]> {
+  return getJson(`/documents/${documentId}/annotations`);
+}
+
+export function createAnnotation(documentId: string, stroke: AnnotationInput): Promise<AnnotationRecord> {
+  return postJson(`/documents/${documentId}/annotations`, stroke);
+}
+
+export async function deleteAnnotation(documentId: string, annotationId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/documents/${documentId}/annotations/${annotationId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Something went wrong.", res.status);
+  }
+}

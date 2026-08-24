@@ -18,6 +18,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { AnnotationLayer, type AnnotationLayerHandle } from "./AnnotationLayer";
+import { listAnnotations, createAnnotation, deleteAnnotation } from "@/lib/api";
 import {
   COLOR_PALETTE,
   DEFAULT_TOOL_STYLE,
@@ -29,6 +30,22 @@ import {
   type StrokeData,
   type ToolId,
 } from "./annotations";
+
+// network calls that fail transiently (a dropped connection, a momentary server hiccup)
+// shouldn't cost the user their annotation - retry a few times with backoff before giving up
+// and surfacing it as a real failure.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 500 * (i + 1)));
+    }
+  }
+  throw lastError;
+}
 
 // what one undo step reverts - either the most recent stroke added (undo removes it) or the
 // most recent erase (undo restores it, at the index it originally occupied so overlapping
@@ -60,11 +77,12 @@ type FitMode = "width" | "height" | null;
 
 interface PdfViewerProps {
   fileUrl: string;
+  documentId: string;
   onLoaded?: (numPages: number) => void;
   showToolbar?: boolean;
 }
 
-export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerProps) {
+export function PdfViewer({ fileUrl, documentId, onLoaded, showToolbar = true }: PdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const annotationLayerRef = useRef<AnnotationLayerHandle>(null);
@@ -105,6 +123,78 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   // tools recalls that tool's own last-picked style rather than resetting or bleeding into
   // another tool's choice. Persists across page navigation and document switches, like `tool`.
   const [toolStyles, setToolStyles] = useState(DEFAULT_TOOL_STYLE);
+  // strokes are created with a temporary client-side id immediately (so undo/erase can
+  // reference them right away, before any network round trip). Once created, that id lives
+  // on IN PLACE - `reconcileClientId` overwrites it with the real server id everywhere it
+  // appears (strokesByPage, undoStack) rather than keeping a separate id-to-id mapping, so
+  // whatever id a stroke currently carries is always the right one to act on. This set is
+  // only for telling the two cases apart: is an id still a client-side placeholder (tracked
+  // here) or already the real server id (not tracked here, safe to delete with directly)?
+  const pendingClientIdsRef = useRef<Set<string>>(new Set());
+  // a clientId lands here if the user erases (or undoes) a stroke before its create request
+  // has resolved - there's no server id to delete yet, so the delete is deferred until the
+  // create resolves and reconciliation supplies one. If the create ultimately fails instead,
+  // this stays queued forever, which is correct: no server record ever existed to delete.
+  const pendingDeleteClientIdsRef = useRef<Set<string>>(new Set());
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const syncErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showSyncError(message: string) {
+    setSyncError(message);
+    if (syncErrorTimeoutRef.current) clearTimeout(syncErrorTimeoutRef.current);
+    syncErrorTimeoutRef.current = setTimeout(() => setSyncError(null), 8000);
+  }
+
+  function reconcileClientId(clientId: string, serverId: string) {
+    pendingClientIdsRef.current.delete(clientId);
+
+    setStrokesByPage((prev) => {
+      const next: Record<number, Stroke[]> = {};
+      for (const [page, strokes] of Object.entries(prev)) {
+        next[Number(page)] = strokes.map((s) => (s.id === clientId ? { ...s, id: serverId } : s));
+      }
+      return next;
+    });
+
+    setUndoStack((stack) =>
+      stack.map((action) => (action.stroke.id === clientId ? { ...action, stroke: { ...action.stroke, id: serverId } } : action))
+    );
+
+    if (pendingDeleteClientIdsRef.current.has(clientId)) {
+      pendingDeleteClientIdsRef.current.delete(clientId);
+      void syncDelete(serverId);
+    }
+  }
+
+  async function syncCreate(clientId: string, stroke: StrokeData & { pageNumber: number }) {
+    pendingClientIdsRef.current.add(clientId);
+    try {
+      const saved = await withRetry(() => createAnnotation(documentId, stroke));
+      reconcileClientId(clientId, saved.id);
+    } catch (err) {
+      console.error("Failed to save annotation", err);
+      showSyncError("Couldn't save your last annotation. It's kept locally but may be lost on reload.");
+    }
+  }
+
+  async function syncDelete(serverId: string) {
+    try {
+      await withRetry(() => deleteAnnotation(documentId, serverId));
+    } catch (err) {
+      console.error("Failed to delete annotation", err);
+      showSyncError("Couldn't delete an annotation on the server. It may reappear after reloading.");
+    }
+  }
+
+  // deletes a stroke's server record now, or - if it's still mid-create (still just a client
+  // id, no server record exists yet) - queues the delete for once reconciliation happens.
+  function resolveOrQueueDelete(id: string) {
+    if (pendingClientIdsRef.current.has(id)) {
+      pendingDeleteClientIdsRef.current.add(id);
+    } else {
+      void syncDelete(id);
+    }
+  }
 
   function setToolColor(color: string) {
     setToolStyles((prev) => ({ ...prev, [tool]: { ...prev[tool], color } }));
@@ -129,6 +219,8 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
       setStrokesByPage({});
       setUndoStack([]);
       setRenderedPage(0);
+      pendingClientIdsRef.current = new Set();
+      pendingDeleteClientIdsRef.current = new Set();
 
       try {
         const pdfjsLib = await import("pdfjs-dist");
@@ -159,6 +251,43 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoaded is a callback, not reactive state
   }, [fileUrl]);
+
+  // Loads previously-saved annotations once per document (US-4.7) and buckets them by page,
+  // same shape as strokes drawn locally. Runs independently of the PDF-loading effect above -
+  // annotations are plain small JSON, no reason to block them on pdf.js parsing the file, or
+  // vice versa.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const records = await listAnnotations(documentId);
+        if (cancelled) return;
+
+        const bucketed: Record<number, Stroke[]> = {};
+        for (const record of records) {
+          (bucketed[record.pageNumber] ??= []).push(record as Stroke);
+        }
+        setStrokesByPage(bucketed);
+
+        // the current page's AnnotationLayer may already have mounted (and captured its
+        // now-stale, empty initial strokes) before this fetch resolved - force a redraw.
+        // A freshly-opened document always starts on page 1, so that's what to redraw with;
+        // `currentPage` itself isn't a safe read here since this effect intentionally doesn't
+        // re-run on page navigation.
+        annotationLayerRef.current?.redraw(bucketed[1] ?? []);
+      } catch (err) {
+        console.error("Failed to load annotations", err);
+        showSyncError("Couldn't load saved annotations for this document.");
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
 
   // Render whichever page is current whenever the loaded document, requested page, scale, or
   // fit mode changes. When a fit mode is active, the target scale is derived from the page's
@@ -226,12 +355,15 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   }, [pdf, currentPage, scale, fitMode]);
 
   function handleStrokeComplete(stroke: StrokeData) {
-    const withId: Stroke = { ...stroke, id: crypto.randomUUID(), pageNumber: currentPage };
+    const clientId = crypto.randomUUID();
+    const withId: Stroke = { ...stroke, id: clientId, pageNumber: currentPage };
     setStrokesByPage((prev) => ({
       ...prev,
       [currentPage]: [...(prev[currentPage] ?? []), withId],
     }));
     setUndoStack((stack) => [...stack, { type: "add", pageNumber: currentPage, stroke: withId }]);
+
+    void syncCreate(clientId, { ...stroke, pageNumber: currentPage });
   }
 
   function handleEraseStroke(id: string) {
@@ -245,6 +377,8 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
       [currentPage]: (prev[currentPage] ?? []).filter((s) => s.id !== id),
     }));
     setUndoStack((stack) => [...stack, { type: "erase", pageNumber: currentPage, stroke, index }]);
+
+    resolveOrQueueDelete(id);
   }
 
   const handleUndo = useCallback(() => {
@@ -252,15 +386,30 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
     const action = undoStack[undoStack.length - 1];
     setUndoStack((stack) => stack.slice(0, -1));
 
-    const updated = applyUndo(strokesByPage[action.pageNumber] ?? [], action);
-    setStrokesByPage((prev) => ({ ...prev, [action.pageNumber]: updated }));
-
-    // strokesByPage alone won't repaint the page currently on screen - AnnotationLayer only
-    // redraws from its `strokes` prop once, at mount, to avoid double-painting a stroke
-    // that's already been drawn live. Undo needs that redraw to happen right now instead.
-    if (action.pageNumber === currentPage) {
-      annotationLayerRef.current?.redraw(updated);
+    if (action.type === "add") {
+      const updated = applyUndo(strokesByPage[action.pageNumber] ?? [], action);
+      setStrokesByPage((prev) => ({ ...prev, [action.pageNumber]: updated }));
+      // strokesByPage alone won't repaint the page currently on screen - AnnotationLayer only
+      // redraws from its `strokes` prop once, at mount, to avoid double-painting a stroke
+      // that's already been drawn live. Undo needs that redraw to happen right now instead.
+      if (action.pageNumber === currentPage) annotationLayerRef.current?.redraw(updated);
+      resolveOrQueueDelete(action.stroke.id);
+      return;
     }
+
+    // undoing an erase: the server record was already deleted when the erase happened, so
+    // restoring it needs a fresh create - re-using the old (now-deleted) id would just 404 the
+    // next time this stroke is erased or undone again.
+    const clientId = crypto.randomUUID();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarding the old (now-deleted) server id
+    const { id: _oldId, ...strokeData } = action.stroke;
+    const restored: Stroke = { ...strokeData, id: clientId, pageNumber: action.pageNumber };
+    const pageStrokes = [...(strokesByPage[action.pageNumber] ?? [])];
+    pageStrokes.splice(Math.min(action.index, pageStrokes.length), 0, restored);
+    setStrokesByPage((prev) => ({ ...prev, [action.pageNumber]: pageStrokes }));
+    if (action.pageNumber === currentPage) annotationLayerRef.current?.redraw(pageStrokes);
+    void syncCreate(clientId, { ...strokeData, pageNumber: action.pageNumber });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- documentId is stable per mount; syncCreate/resolveOrQueueDelete close over live refs/state, not memoized
   }, [undoStack, strokesByPage, currentPage]);
 
   // Ctrl/Cmd+Z undoes the last annotation action, unless the user is typing somewhere (the
@@ -311,6 +460,16 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* Shown regardless of `showToolbar` - a failed save/delete is a data-integrity notice,
+          not chrome the reader chose to hide. Auto-clears after a few seconds. */}
+      {syncError && (
+        <div
+          role="alert"
+          className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-danger-bg px-4 py-2 text-xs font-medium text-danger shadow-sm"
+        >
+          {syncError}
+        </div>
+      )}
       <div ref={containerRef} className="flex min-h-0 flex-1 justify-center overflow-auto p-4">
         {loading && (
           <div className="flex items-center gap-2 self-start text-sm text-muted-foreground">

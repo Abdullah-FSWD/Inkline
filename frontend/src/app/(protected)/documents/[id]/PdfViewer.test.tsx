@@ -5,15 +5,31 @@ import { PdfViewer } from "./PdfViewer";
 
 const getPage = vi.fn();
 const getDocument = vi.fn();
+const listAnnotations = vi.fn();
+const createAnnotation = vi.fn();
+const deleteAnnotation = vi.fn();
 
 vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: {},
   getDocument: (...args: unknown[]) => getDocument(...args),
 }));
 
+vi.mock("@/lib/api", () => ({
+  listAnnotations: (...args: unknown[]) => listAnnotations(...args),
+  createAnnotation: (...args: unknown[]) => createAnnotation(...args),
+  deleteAnnotation: (...args: unknown[]) => deleteAnnotation(...args),
+}));
+
 beforeEach(() => {
   getPage.mockReset();
   getDocument.mockReset();
+  listAnnotations.mockReset().mockResolvedValue([]);
+  let nextServerId = 1;
+  createAnnotation.mockReset().mockImplementation(async (_documentId: string, stroke: object) => ({
+    id: `server-${nextServerId++}`,
+    ...stroke,
+  }));
+  deleteAnnotation.mockReset().mockResolvedValue(undefined);
   // jsdom's canvas has no real 2D rendering context by default. AnnotationLayer's mount
   // effect unconditionally calls clearRect (even with zero stored strokes), so it must exist.
   HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({ clearRect: vi.fn() }) as never;
@@ -39,7 +55,7 @@ describe("PdfViewer", () => {
     const documentLoad = deferred<{ getPage: typeof getPage; numPages: number }>();
     getDocument.mockReturnValue({ promise: documentLoad.promise });
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
 
     expect(screen.getByText(/rendering document/i)).toBeInTheDocument();
 
@@ -52,7 +68,7 @@ describe("PdfViewer", () => {
   it("shows an error message if pdf.js fails to load the document", async () => {
     getDocument.mockReturnValue({ promise: Promise.reject(new Error("network error")) });
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't load this pdf/i);
   });
@@ -61,7 +77,7 @@ describe("PdfViewer", () => {
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
 
     await vi.waitFor(() => expect(getDocument).toHaveBeenCalled());
     expect(getDocument).toHaveBeenCalledWith(
@@ -74,7 +90,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 5 }) });
     const onLoaded = vi.fn();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" onLoaded={onLoaded} />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" onLoaded={onLoaded} />);
 
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
     expect(onLoaded).toHaveBeenCalledWith(5);
@@ -84,13 +100,13 @@ describe("PdfViewer", () => {
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 2 }) });
 
-    const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getDocument).toHaveBeenCalledTimes(1));
 
-    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     expect(getDocument).toHaveBeenCalledTimes(1);
 
-    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" />);
+    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" documentId="2" />);
     await vi.waitFor(() => expect(getDocument).toHaveBeenCalledTimes(2));
   });
 
@@ -98,7 +114,7 @@ describe("PdfViewer", () => {
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
 
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
     expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
@@ -113,7 +129,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     const pageRender = deferred<unknown>();
@@ -138,7 +154,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
 
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
     expect(screen.getByRole("button", { name: /previous page/i })).toBeDisabled();
@@ -187,7 +203,7 @@ describe("PdfViewer", () => {
       y: 0,
       toJSON: () => {},
     }));
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     function drag() {
@@ -253,7 +269,7 @@ describe("PdfViewer", () => {
       y: 0,
       toJSON: () => {},
     }));
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     function pointer(type: string, x: number, y: number) {
@@ -319,7 +335,7 @@ describe("PdfViewer", () => {
       y: 0,
       toJSON: () => {},
     }));
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     function pointer(type: string, x: number, y: number) {
@@ -377,7 +393,7 @@ describe("PdfViewer", () => {
       y: 0,
       toJSON: () => {},
     }));
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     function pointer(type: string, x: number, y: number) {
@@ -435,7 +451,7 @@ describe("PdfViewer", () => {
       y: 0,
       toJSON: () => {},
     }));
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     function pointer(type: string, x: number, y: number) {
@@ -468,7 +484,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     expect(screen.getByRole("radio", { name: /pencil/i })).toHaveAttribute("aria-checked", "true");
@@ -485,7 +501,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     expect(screen.queryByRole("radio", { name: /straight line/i })).not.toBeInTheDocument();
@@ -511,7 +527,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     // pencil's own default color/width
@@ -541,7 +557,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     // pencil starts at width 2, min is 1 - one decrease should reach the floor and disable
@@ -555,14 +571,14 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
     const user = userEvent.setup();
 
-    const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
     await user.click(screen.getByRole("button", { name: /next page/i }));
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
 
     getPage.mockClear();
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 4 }) });
-    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" />);
+    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" documentId="2" />);
 
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
     expect(getPage).not.toHaveBeenCalledWith(2);
@@ -573,7 +589,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 5 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     const input = screen.getByLabelText(/page number/i);
@@ -588,7 +604,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     const input = screen.getByLabelText(/page number/i);
@@ -603,7 +619,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
     getPage.mockClear();
 
@@ -623,7 +639,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
 
     await user.clear(screen.getByLabelText(/page number/i));
@@ -643,7 +659,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
 
     expect(screen.getByText("100%")).toBeInTheDocument();
@@ -664,7 +680,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
 
     for (let i = 0; i < 10; i++) {
@@ -684,14 +700,14 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    const { rerender } = render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
     await user.click(screen.getByRole("button", { name: /zoom in/i }));
     await vi.waitFor(() => expect(screen.getByText("114%")).toBeInTheDocument());
 
     page.getViewport.mockClear();
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
-    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" />);
+    rerender(<PdfViewer fileUrl="http://localhost:4000/documents/2/file" documentId="2" />);
 
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
     expect(screen.getByText("100%")).toBeInTheDocument();
@@ -703,7 +719,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
 
     const fitWidthButton = screen.getByRole("button", { name: /fit width/i });
@@ -722,7 +738,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
 
     await user.click(screen.getByRole("button", { name: /fit height/i }));
@@ -739,7 +755,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
 
     await user.click(screen.getByRole("button", { name: /fit width/i }));
@@ -754,7 +770,7 @@ describe("PdfViewer", () => {
     getPage.mockResolvedValue(page);
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" showToolbar={false} />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" showToolbar={false} />);
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
 
     expect(screen.queryByRole("button", { name: /next page/i })).not.toBeInTheDocument();
@@ -767,7 +783,7 @@ describe("PdfViewer", () => {
     getPage.mockResolvedValue(page);
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
 
     expect(screen.getByRole("button", { name: /zoom in/i })).toBeInTheDocument();
@@ -778,7 +794,7 @@ describe("PdfViewer", () => {
     getPage.mockResolvedValue(page);
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.4 }));
 
     const overlay = await screen.findByTestId("annotation-layer");
@@ -793,7 +809,7 @@ describe("PdfViewer", () => {
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 2 }) });
     const user = userEvent.setup();
 
-    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
     await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
     const firstOverlay = await screen.findByTestId("annotation-layer");
     expect(firstOverlay).toHaveAttribute("data-page-number", "1");
@@ -804,5 +820,220 @@ describe("PdfViewer", () => {
     const secondOverlay = await screen.findByTestId("annotation-layer");
     expect(secondOverlay).toHaveAttribute("data-page-number", "2");
     expect(secondOverlay).not.toBe(firstOverlay);
+  });
+
+  describe("persisting annotations via the API (US-4.7)", () => {
+    function annotationCanvasMock() {
+      return {
+        strokeStyle: "",
+        lineWidth: 0,
+        lineCap: "",
+        lineJoin: "",
+        globalAlpha: 1,
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        drawImage: vi.fn(),
+        clearRect: vi.fn(),
+      };
+    }
+
+    function drag(ctx: ReturnType<typeof annotationCanvasMock>) {
+      HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+      HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
+      HTMLCanvasElement.prototype.getBoundingClientRect = vi.fn(() => ({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 150,
+        right: 100,
+        bottom: 150,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      }));
+      const canvas = screen.getByTestId("annotation-layer");
+      act(() => {
+        const down = new Event("pointerdown", { bubbles: true }) as PointerEvent;
+        Object.assign(down, { clientX: 0, clientY: 0, pointerId: 1 });
+        canvas.dispatchEvent(down);
+        const move = new Event("pointermove", { bubbles: true }) as PointerEvent;
+        Object.assign(move, { clientX: 10, clientY: 10, pointerId: 1 });
+        canvas.dispatchEvent(move);
+        const up = new Event("pointerup", { bubbles: true }) as PointerEvent;
+        Object.assign(up, { clientX: 10, clientY: 10, pointerId: 1 });
+        canvas.dispatchEvent(up);
+      });
+    }
+
+    it("loads previously-saved annotations on document open and redraws them", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+      listAnnotations.mockResolvedValue([
+        {
+          id: "saved-1",
+          pageNumber: 1,
+          tool: "pencil",
+          color: "#1c1a17",
+          width: 2,
+          opacity: 1,
+          points: [
+            { x: 5, y: 5 },
+            { x: 15, y: 15 },
+          ],
+        },
+      ]);
+      const ctx = annotationCanvasMock();
+      HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      expect(listAnnotations).toHaveBeenCalledWith("1");
+      await vi.waitFor(() => expect(ctx.moveTo).toHaveBeenCalledWith(5, 5));
+      expect(ctx.lineTo).toHaveBeenCalledWith(15, 15);
+    });
+
+    it("saves a newly drawn stroke through the API", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      drag(annotationCanvasMock());
+
+      await vi.waitFor(() => expect(createAnnotation).toHaveBeenCalledTimes(1));
+      expect(createAnnotation).toHaveBeenCalledWith(
+        "1",
+        expect.objectContaining({
+          pageNumber: 1,
+          tool: "pencil",
+          points: [
+            { x: 0, y: 0 },
+            { x: 10, y: 10 },
+          ],
+        })
+      );
+    });
+
+    it("deletes the erased stroke's annotation via the API, using the server id once reconciled", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      drag(annotationCanvasMock());
+      await vi.waitFor(() => expect(createAnnotation).toHaveBeenCalledTimes(1));
+      const serverId = (await createAnnotation.mock.results[0].value).id;
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("radio", { name: /^eraser/i }));
+
+      const eraseCtx = annotationCanvasMock();
+      HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(eraseCtx) as never;
+      const canvas = screen.getByTestId("annotation-layer");
+      act(() => {
+        const down = new Event("pointerdown", { bubbles: true }) as PointerEvent;
+        Object.assign(down, { clientX: 5, clientY: 5, pointerId: 1 });
+        canvas.dispatchEvent(down);
+      });
+
+      await vi.waitFor(() => expect(deleteAnnotation).toHaveBeenCalledWith("1", serverId));
+    });
+
+    it("queues the delete until the create resolves, when erased before the save finishes", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+      const create = deferred<{ id: string }>();
+      createAnnotation.mockReturnValue(create.promise);
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      drag(annotationCanvasMock());
+      await vi.waitFor(() => expect(createAnnotation).toHaveBeenCalledTimes(1));
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("radio", { name: /^eraser/i }));
+      const eraseCtx = annotationCanvasMock();
+      HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(eraseCtx) as never;
+      const canvas = screen.getByTestId("annotation-layer");
+      act(() => {
+        const down = new Event("pointerdown", { bubbles: true }) as PointerEvent;
+        Object.assign(down, { clientX: 5, clientY: 5, pointerId: 1 });
+        canvas.dispatchEvent(down);
+      });
+
+      // the create hasn't resolved yet - there's no server id to delete with yet
+      expect(deleteAnnotation).not.toHaveBeenCalled();
+
+      await act(async () => {
+        create.resolve({ id: "server-late" });
+        await create.promise;
+      });
+
+      await vi.waitFor(() => expect(deleteAnnotation).toHaveBeenCalledWith("1", "server-late"));
+    });
+
+    it("undoing a drawn stroke deletes it via the API once reconciled", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      drag(annotationCanvasMock());
+      await vi.waitFor(() => expect(createAnnotation).toHaveBeenCalledTimes(1));
+      const serverId = (await createAnnotation.mock.results[0].value).id;
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /^undo$/i }));
+
+      await vi.waitFor(() => expect(deleteAnnotation).toHaveBeenCalledWith("1", serverId));
+    });
+
+    it("undoing an erase re-creates the annotation through the API", async () => {
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      drag(annotationCanvasMock());
+      await vi.waitFor(() => expect(createAnnotation).toHaveBeenCalledTimes(1));
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("radio", { name: /^eraser/i }));
+      const eraseCtx = annotationCanvasMock();
+      HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(eraseCtx) as never;
+      const canvas = screen.getByTestId("annotation-layer");
+      act(() => {
+        const down = new Event("pointerdown", { bubbles: true }) as PointerEvent;
+        Object.assign(down, { clientX: 5, clientY: 5, pointerId: 1 });
+        canvas.dispatchEvent(down);
+      });
+      await vi.waitFor(() => expect(deleteAnnotation).toHaveBeenCalledTimes(1));
+
+      await user.click(screen.getByRole("button", { name: /^undo$/i }));
+
+      // undoing an erase can't resurrect the deleted server record - it has to create a fresh one
+      await vi.waitFor(() => expect(createAnnotation).toHaveBeenCalledTimes(2));
+    });
+
+    it("shows a dismissable error banner when saving ultimately fails after retries", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      getPage.mockResolvedValue(mockPage());
+      getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+      createAnnotation.mockRejectedValue(new Error("network error"));
+
+      render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" documentId="1" />);
+      await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+      drag(annotationCanvasMock());
+
+      await vi.waitFor(() => expect(createAnnotation).toHaveBeenCalledTimes(3), { timeout: 10000 });
+      await vi.waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't save/i), { timeout: 10000 });
+
+      vi.useRealTimers();
+    });
   });
 });
