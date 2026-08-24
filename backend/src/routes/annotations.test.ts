@@ -201,6 +201,87 @@ describe("GET /documents/:id/annotations", () => {
   });
 });
 
+describe("DELETE /documents/:id/annotations/:annotationId", () => {
+  it("rejects an unauthenticated request", async () => {
+    const res = await request(app).delete(
+      "/documents/000000000000000000000000/annotations/000000000000000000000000"
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("deletes the annotation", async () => {
+    const { agent, documentId } = await signupAndUpload("annotations-test-14.pdf");
+    const create = await agent.post(`/documents/${documentId}/annotations`).send(validStroke());
+    const annotationId = create.body.id;
+
+    const res = await agent.delete(`/documents/${documentId}/annotations/${annotationId}`);
+    expect(res.status).toBe(204);
+
+    expect(await AnnotationModel.findById(annotationId)).toBeNull();
+  });
+
+  it("no longer appears in the list after deletion", async () => {
+    const { agent, documentId } = await signupAndUpload("annotations-test-15.pdf");
+    const create = await agent.post(`/documents/${documentId}/annotations`).send(validStroke());
+    await agent.post(`/documents/${documentId}/annotations`).send(validStroke({ pageNumber: 2 }));
+
+    await agent.delete(`/documents/${documentId}/annotations/${create.body.id}`);
+
+    const res = await agent.get(`/documents/${documentId}/annotations`);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].pageNumber).toBe(2);
+  });
+
+  it("returns 404 (not 403) when the document belongs to another user, and does not delete the annotation", async () => {
+    const { agent: agentA, documentId } = await signupAndUpload("annotations-test-16.pdf");
+    const create = await agentA.post(`/documents/${documentId}/annotations`).send(validStroke());
+
+    const emailB = uniqueEmail();
+    const agentB = request.agent(app);
+    await agentB.post("/auth/signup").send({ email: emailB, password: "correct-horse" });
+
+    const res = await agentB.delete(`/documents/${documentId}/annotations/${create.body.id}`);
+    expect(res.status).toBe(404);
+    expect(await AnnotationModel.findById(create.body.id)).not.toBeNull();
+  });
+
+  it("returns 404 for a nonexistent annotation id", async () => {
+    const { agent, documentId } = await signupAndUpload("annotations-test-17.pdf");
+
+    const res = await agent.delete(`/documents/${documentId}/annotations/000000000000000000000000`);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not 500) for a malformed annotation id", async () => {
+    const { agent, documentId } = await signupAndUpload("annotations-test-18.pdf");
+
+    const res = await agent.delete(`/documents/${documentId}/annotations/not-a-valid-object-id`);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 when the annotation belongs to a different document than the one in the URL", async () => {
+    const { agent, documentId: docA } = await signupAndUpload("annotations-test-19.pdf");
+    const upload2 = await agent.post("/documents/upload").attach("file", pdfBuffer(), "annotations-test-20.pdf");
+    const docB = upload2.body.id as string;
+    const create = await agent.post(`/documents/${docA}/annotations`).send(validStroke());
+
+    const res = await agent.delete(`/documents/${docB}/annotations/${create.body.id}`);
+    expect(res.status).toBe(404);
+    expect(await AnnotationModel.findById(create.body.id)).not.toBeNull();
+  });
+
+  it("returns 404 for a nonexistent document id", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const res = await agent.delete(
+      "/documents/000000000000000000000000/annotations/000000000000000000000000"
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("DELETE /documents/:id cascades to annotations", () => {
   it("deletes a document's annotations along with the document", async () => {
     const { agent, documentId } = await signupAndUpload("annotations-test-13.pdf");

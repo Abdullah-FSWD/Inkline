@@ -164,6 +164,30 @@ documentsRouter.post("/:id/annotations", async (req, res) => {
   res.status(201).json(toAnnotationResponse(annotation));
 });
 
+documentsRouter.delete("/:id/annotations/:annotationId", async (req, res) => {
+  const document = await DocumentModel.findOne({ _id: req.params.id, ownerId: req.userId }).catch(() => null);
+
+  if (!document) {
+    res.status(404).json({ error: "Document not found." });
+    return;
+  }
+
+  // scoping by documentId (not just annotationId + ownerId) also 404s an annotationId that's
+  // real but belongs to a different document than the one named in the URL.
+  const annotation = await AnnotationModel.findOneAndDelete({
+    _id: req.params.annotationId,
+    documentId: document._id,
+    ownerId: req.userId,
+  }).catch(() => null);
+
+  if (!annotation) {
+    res.status(404).json({ error: "Annotation not found." });
+    return;
+  }
+
+  res.status(204).send();
+});
+
 documentsRouter.delete("/:id", async (req, res) => {
   const document = await DocumentModel.findOne({ _id: req.params.id, ownerId: req.userId }).catch(() => null);
 
