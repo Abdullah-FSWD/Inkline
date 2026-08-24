@@ -23,7 +23,8 @@
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.5.0",
     "mongoose": "^9.9.3",
-    "multer": "^2.2.0"
+    "multer": "^2.2.0",
+    "puppeteer": "^25.8.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

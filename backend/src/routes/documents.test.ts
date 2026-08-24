@@ -51,19 +51,21 @@ describe("POST /documents/upload", () => {
     expect(stored!.fileId).toBeDefined();
   });
 
-  it("rejects an HTML upload with a distinct 'coming soon' message, not the generic one", async () => {
+  it("accepts an HTML upload and starts it processing rather than rejecting it", async () => {
     const email = uniqueEmail();
     const agent = request.agent(app);
     await agent.post("/auth/signup").send({ email, password: "correct-horse" });
 
     const res = await agent
       .post("/documents/upload")
-      .attach("file", Buffer.from("<html></html>"), "documents-test-3.html");
+      .attach("file", Buffer.from("<html><body><h1>Test</h1></body></html>"), "documents-test-3.html");
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/coming soon/i);
-    const stored = await DocumentModel.findOne({ originalFilename: "documents-test-3.html" });
-    expect(stored).toBeNull();
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ title: "documents-test-3", sourceType: "html", status: "processing" });
+
+    const stored = await DocumentModel.findById(res.body.id);
+    expect(stored).not.toBeNull();
+    expect(stored!.status).toBe("processing");
   });
 
   it("rejects an unsupported extension with the generic message", async () => {
@@ -127,6 +129,52 @@ describe("POST /documents/upload", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/too large/i);
   }, 20000);
+});
+
+async function waitForStatus(agent: ReturnType<typeof request.agent>, documentId: string, status: string, timeoutMs = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const res = await agent.get(`/documents/${documentId}`);
+    if (res.body.status === status) return res.body;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`Timed out waiting for document ${documentId} to reach status "${status}"`);
+}
+
+describe("HTML-to-PDF conversion (Stage 6)", () => {
+  it("converts a valid HTML upload to a real, servable PDF", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const upload = await agent
+      .post("/documents/upload")
+      .attach("file", Buffer.from("<html><body><h1>Converted</h1></body></html>"), "documents-test-conv1.html");
+    expect(upload.body.status).toBe("processing");
+
+    const ready = await waitForStatus(agent, upload.body.id, "ready");
+    expect(ready.sourceType).toBe("html");
+
+    const file = await agent.get(`/documents/${upload.body.id}/file`);
+    expect(file.status).toBe(200);
+    expect(file.headers["content-type"]).toBe("application/pdf");
+    expect(file.body.subarray(0, 5).toString()).toBe("%PDF-");
+  }, 30000);
+
+  // The conversion job's own failure path (Puppeteer/upload throwing -> status becomes
+  // "failed", not stuck on "processing") is exercised as a focused unit test against
+  // convertAndStoreHtml directly, with a mocked convertHtmlToPdf - see htmlConversionJob.test.ts.
+  // Real malformed/pathological HTML isn't a reliable way to trigger that path here: Chromium's
+  // parser is extremely tolerant and will still produce *a* PDF for almost anything.
+
+  it("does not affect PDF uploads, which stay synchronously ready", async () => {
+    const email = uniqueEmail();
+    const agent = request.agent(app);
+    await agent.post("/auth/signup").send({ email, password: "correct-horse" });
+
+    const upload = await agent.post("/documents/upload").attach("file", pdfBuffer(), "documents-test-conv3.pdf");
+    expect(upload.body.status).toBe("ready");
+  });
 });
 
 describe("GET /documents", () => {

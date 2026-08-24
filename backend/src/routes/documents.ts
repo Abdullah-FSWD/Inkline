@@ -6,6 +6,7 @@ import { DocumentModel } from "../models/Document.js";
 import { AnnotationModel, ANNOTATION_TOOLS } from "../models/Annotation.js";
 import { uploadFile, deleteFile, openDownloadStream } from "../lib/gridfs.js";
 import { detectFileType } from "../lib/fileType.js";
+import { convertAndStoreHtml } from "../lib/htmlConversionJob.js";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB - memoryStorage buffers the whole file in RAM
 
@@ -235,12 +236,35 @@ documentsRouter.post("/upload", upload.single("file"), async (req, res) => {
   }
 
   const detectedType = detectFileType(req.file.originalname, req.file.buffer);
+  const ext = path.extname(req.file.originalname);
 
   if (detectedType === "html") {
-    // HTML-to-PDF conversion is built in Stage 6 (US-1.3/1.4); until then this path is
-    // recognized and rejected explicitly rather than lumped in with "unsupported", so the
-    // eventual conversion queueing just replaces this branch's body.
-    res.status(400).json({ error: "HTML upload support is coming soon. Please upload a PDF for now." });
+    // stored as-is immediately so `fileId` (required, non-nullable) is always valid; the
+    // reader never serves it since GET /:id/file 409s on anything but "ready" - swapped for
+    // the converted PDF once conversion succeeds, in convertAndStoreHtml above.
+    const fileId = await uploadFile(req.file.originalname, "text/html", req.file.buffer);
+
+    const document = await DocumentModel.create({
+      ownerId: req.userId,
+      title: path.basename(req.file.originalname, ext),
+      sourceType: "html",
+      status: "processing",
+      fileId,
+      originalFilename: req.file.originalname,
+      mimeType: "text/html",
+    });
+
+    res.status(201).json({
+      id: document._id.toString(),
+      title: document.title,
+      sourceType: document.sourceType,
+      status: document.status,
+      createdAt: document.createdAt,
+    });
+
+    // deliberately not awaited - conversion runs after the response is already sent, matching
+    // "async job" (US-1.3); the client polls status via the existing GET endpoints (US-1.5).
+    void convertAndStoreHtml(document._id, req.file.buffer);
     return;
   }
 
@@ -249,7 +273,6 @@ documentsRouter.post("/upload", upload.single("file"), async (req, res) => {
     return;
   }
 
-  const ext = path.extname(req.file.originalname);
   const fileId = await uploadFile(req.file.originalname, req.file.mimetype, req.file.buffer);
 
   const document = await DocumentModel.create({
