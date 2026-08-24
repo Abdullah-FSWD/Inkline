@@ -65,7 +65,7 @@ beforeEach(() => {
 
 describe("AnnotationLayer", () => {
   it("renders a canvas sized to the given page dimensions", () => {
-    render(<AnnotationLayer pageNumber={3} width={640} height={480} tool="pencil" />);
+    render(<AnnotationLayer pageNumber={3} width={640} height={480} tool="pencil" color="#1c1a17" strokeWidth={2} />);
 
     const canvas = screen.getByTestId("annotation-layer");
     expect(canvas.tagName).toBe("CANVAS");
@@ -75,7 +75,7 @@ describe("AnnotationLayer", () => {
   });
 
   it("draws a line segment on the canvas while dragging", () => {
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} />);
     const canvas = screen.getByTestId("annotation-layer");
     const ctx = mainContextOf(canvas);
 
@@ -89,7 +89,7 @@ describe("AnnotationLayer", () => {
   });
 
   it("draws a continuous multi-segment stroke as the pointer keeps moving", () => {
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} />);
     const canvas = screen.getByTestId("annotation-layer");
     const ctx = mainContextOf(canvas);
 
@@ -104,7 +104,7 @@ describe("AnnotationLayer", () => {
   });
 
   it("does not draw on pointer move before a pointer down", () => {
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} />);
     const canvas = screen.getByTestId("annotation-layer");
     const ctx = mainContextOf(canvas);
 
@@ -114,7 +114,7 @@ describe("AnnotationLayer", () => {
   });
 
   it("stops drawing after pointer up, requiring a new pointer down to resume", () => {
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} />);
     const canvas = screen.getByTestId("annotation-layer");
     const ctx = mainContextOf(canvas);
 
@@ -129,7 +129,7 @@ describe("AnnotationLayer", () => {
   it("reports the full ordered point list and style on stroke completion", () => {
     const onStrokeComplete = vi.fn();
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} onStrokeComplete={onStrokeComplete} />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 0, 0);
@@ -154,7 +154,7 @@ describe("AnnotationLayer", () => {
   it("does not report a stroke for a click with no movement", () => {
     const onStrokeComplete = vi.fn();
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} onStrokeComplete={onStrokeComplete} />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 5, 5);
@@ -178,7 +178,7 @@ describe("AnnotationLayer", () => {
       },
     ];
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={strokes} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} strokes={strokes} />);
     const ctx = mainContextOf(screen.getByTestId("annotation-layer"));
 
     expect(ctx.beginPath).toHaveBeenCalledTimes(1);
@@ -204,7 +204,7 @@ describe("AnnotationLayer", () => {
       },
     ];
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={strokes} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} strokes={strokes} />);
     const ctx = mainContextOf(screen.getByTestId("annotation-layer"));
 
     // composited once via drawImage, not traced directly on the main canvas - that's what
@@ -234,7 +234,7 @@ describe("AnnotationLayer", () => {
 
     render(
       <StrictMode>
-        <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={strokes} />
+        <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} strokes={strokes} />
       </StrictMode>
     );
     const ctx = mainContextOf(screen.getByTestId("annotation-layer"));
@@ -267,7 +267,7 @@ describe("AnnotationLayer", () => {
     const onStrokeComplete = vi.fn();
 
     const { rerender } = render(
-      <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" strokes={[]} onStrokeComplete={onStrokeComplete} />
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} strokes={[]} onStrokeComplete={onStrokeComplete} />
     );
     const canvas = screen.getByTestId("annotation-layer");
     const ctx = mainContextOf(canvas);
@@ -284,7 +284,7 @@ describe("AnnotationLayer", () => {
         pageNumber={1}
         width={100}
         height={150}
-        tool="pencil"
+        tool="pencil" color="#1c1a17" strokeWidth={2}
         strokes={[strokesAfter]}
         onStrokeComplete={onStrokeComplete}
       />
@@ -296,7 +296,7 @@ describe("AnnotationLayer", () => {
   it("starts a fresh point list for each new stroke", () => {
     const onStrokeComplete = vi.fn();
 
-    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />);
+    render(<AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} onStrokeComplete={onStrokeComplete} />);
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 0, 0);
@@ -323,7 +323,7 @@ describe("AnnotationLayer", () => {
     const onStrokeComplete = vi.fn();
 
     render(
-      <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" onStrokeComplete={onStrokeComplete} />
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" color="#ffd54a" strokeWidth={16} onStrokeComplete={onStrokeComplete} />
     );
     const canvas = screen.getByTestId("annotation-layer");
     const ctx = mainContextOf(canvas);
@@ -353,7 +353,7 @@ describe("AnnotationLayer", () => {
     const onStrokeComplete = vi.fn();
 
     render(
-      <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" onStrokeComplete={onStrokeComplete} />
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" color="#ffd54a" strokeWidth={16} onStrokeComplete={onStrokeComplete} />
     );
     const canvas = screen.getByTestId("annotation-layer");
     const ctx = mainContextOf(canvas);
@@ -382,13 +382,13 @@ describe("AnnotationLayer", () => {
     const onStrokeComplete = vi.fn();
 
     const { rerender } = render(
-      <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" onStrokeComplete={onStrokeComplete} />
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} onStrokeComplete={onStrokeComplete} />
     );
     const canvas = screen.getByTestId("annotation-layer");
 
     firePointer(canvas, "pointerdown", 0, 0);
     rerender(
-      <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" onStrokeComplete={onStrokeComplete} />
+      <AnnotationLayer pageNumber={1} width={100} height={150} tool="highlighter" color="#ffd54a" strokeWidth={16} onStrokeComplete={onStrokeComplete} />
     );
     firePointer(canvas, "pointermove", 5, 5);
     firePointer(canvas, "pointerup", 5, 5);
@@ -404,7 +404,7 @@ describe("AnnotationLayer", () => {
         pageNumber={1}
         width={100}
         height={150}
-        tool="underline"
+        tool="underline" color="#dc2626" strokeWidth={2.5}
         mode="straight"
         onStrokeComplete={onStrokeComplete}
       />
@@ -444,7 +444,7 @@ describe("AnnotationLayer", () => {
         pageNumber={1}
         width={100}
         height={150}
-        tool="underline"
+        tool="underline" color="#dc2626" strokeWidth={2.5}
         mode="freehand"
         onStrokeComplete={onStrokeComplete}
       />
@@ -479,7 +479,7 @@ describe("AnnotationLayer", () => {
         pageNumber={1}
         width={100}
         height={150}
-        tool="underline"
+        tool="underline" color="#dc2626" strokeWidth={2.5}
         mode="straight"
         onStrokeComplete={onStrokeComplete}
       />

@@ -263,6 +263,50 @@ describe("PdfViewer", () => {
     expect(screen.queryByRole("radio", { name: /straight line/i })).not.toBeInTheDocument();
   });
 
+  it("remembers each tool's own color/width choice independently, rather than sharing one setting", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    // pencil's own default color/width
+    expect(screen.getByRole("radio", { name: "#1c1a17" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("2")).toBeInTheDocument();
+
+    // pick a different color and widen pencil's stroke
+    await user.click(screen.getByRole("radio", { name: "#2563eb" }));
+    await user.click(screen.getByRole("button", { name: /increase width/i }));
+
+    expect(screen.getByRole("radio", { name: "#2563eb" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("3")).toBeInTheDocument();
+
+    // switching to highlighter shows ITS OWN default, unaffected by pencil's customization
+    await user.click(screen.getByRole("radio", { name: /^highlighter/i }));
+    expect(screen.getByRole("radio", { name: "#ffd54a" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("16")).toBeInTheDocument();
+
+    // switching back to pencil recalls pencil's own customized choice, not highlighter's
+    await user.click(screen.getByRole("radio", { name: /^pencil/i }));
+    expect(screen.getByRole("radio", { name: "#2563eb" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("3")).toBeInTheDocument();
+  });
+
+  it("clamps the width stepper to the current tool's min/max range", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    // pencil starts at width 2, min is 1 - one decrease should reach the floor and disable
+    await user.click(screen.getByRole("button", { name: /decrease width/i }));
+    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /decrease width/i })).toBeDisabled();
+  });
+
   it("resets to page 1 when switching to a different document", async () => {
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });

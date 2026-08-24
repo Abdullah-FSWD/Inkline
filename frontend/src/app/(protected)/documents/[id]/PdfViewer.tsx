@@ -1,9 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Pencil, Highlighter, Underline, Slash, Spline } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Pencil, Highlighter, Underline, Slash, Spline, Minus, Plus } from "lucide-react";
 import { AnnotationLayer } from "./AnnotationLayer";
-import { DRAW_MODES, TOOLS, type DrawMode, type Stroke, type StrokeData, type ToolId } from "./annotations";
+import {
+  COLOR_PALETTE,
+  DEFAULT_TOOL_STYLE,
+  DRAW_MODES,
+  TOOLS,
+  WIDTH_RANGE,
+  type DrawMode,
+  type Stroke,
+  type StrokeData,
+  type ToolId,
+} from "./annotations";
 
 const TOOL_ICONS: Record<ToolId, typeof Pencil> = { pencil: Pencil, highlighter: Highlighter, underline: Underline };
 const TOOL_LABELS: Record<ToolId, string> = { pencil: "Pencil", highlighter: "Highlighter", underline: "Underline" };
@@ -56,6 +66,18 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   // only meaningful for the underline tool (US-4.3) - pencil/highlighter always draw
   // freehand. Defaults to straight since underlining text is the more common case.
   const [drawMode, setDrawMode] = useState<DrawMode>("straight");
+  // each tool remembers its own color/width (US-4.4), not one shared setting - switching
+  // tools recalls that tool's own last-picked style rather than resetting or bleeding into
+  // another tool's choice. Persists across page navigation and document switches, like `tool`.
+  const [toolStyles, setToolStyles] = useState(DEFAULT_TOOL_STYLE);
+
+  function setToolColor(color: string) {
+    setToolStyles((prev) => ({ ...prev, [tool]: { ...prev[tool], color } }));
+  }
+
+  function setToolWidth(width: number) {
+    setToolStyles((prev) => ({ ...prev, [tool]: { ...prev[tool], width } }));
+  }
 
   // Load the PDF document once per fileUrl and cache it - later page changes (US-3.2's
   // next/prev controls) reuse this instance instead of re-fetching the whole file.
@@ -222,6 +244,8 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
               height={pageSize.height}
               tool={tool}
               mode={drawMode}
+              color={toolStyles[tool].color}
+              strokeWidth={toolStyles[tool].width}
               strokes={strokesByPage[currentPage]}
               onStrokeComplete={handleStrokeComplete}
             />
@@ -279,6 +303,45 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
               })}
             </div>
           )}
+
+          <div className="flex items-center gap-1" role="radiogroup" aria-label="Annotation color">
+            {COLOR_PALETTE.map((color) => (
+              <button
+                key={color}
+                type="button"
+                role="radio"
+                aria-checked={toolStyles[tool].color === color}
+                aria-label={color}
+                onClick={() => setToolColor(color)}
+                style={{ backgroundColor: color }}
+                className={`h-5 w-5 rounded-full border-2 transition-transform ${
+                  toolStyles[tool].color === color ? "scale-110 border-accent" : "border-transparent hover:scale-105"
+                }`}
+              />
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              aria-label="Decrease width"
+              disabled={toolStyles[tool].width <= WIDTH_RANGE[tool].min}
+              onClick={() => setToolWidth(Math.max(WIDTH_RANGE[tool].min, toolStyles[tool].width - WIDTH_RANGE[tool].step))}
+              className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+            >
+              <Minus size={14} />
+            </button>
+            <span className="w-6 text-center text-xs text-muted-foreground">{toolStyles[tool].width}</span>
+            <button
+              type="button"
+              aria-label="Increase width"
+              disabled={toolStyles[tool].width >= WIDTH_RANGE[tool].max}
+              onClick={() => setToolWidth(Math.min(WIDTH_RANGE[tool].max, toolStyles[tool].width + WIDTH_RANGE[tool].step))}
+              className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
 
           <div className="mx-1 hidden h-4 w-px bg-surface-border sm:block" />
 

@@ -1,25 +1,23 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { DrawMode, Point, StrokeData, ToolId } from "./annotations";
+import { TOOL_OPACITY, type DrawMode, type Point, type StrokeData, type ToolId } from "./annotations";
 
 interface AnnotationLayerProps {
   pageNumber: number;
   width: number;
   height: number;
   tool: ToolId;
+  // the CURRENT tool's user-chosen color/width (US-4.4) - opacity is intrinsic to the tool
+  // itself (TOOL_OPACITY) and isn't user-configurable, so it isn't passed as a prop.
+  color: string;
+  strokeWidth: number;
   // only meaningful for tools that support more than one drawing mode (currently just
   // underline); ignored by tools that only ever draw freehand.
   mode?: DrawMode;
   strokes?: StrokeData[];
   onStrokeComplete?: (stroke: StrokeData) => void;
 }
-
-const TOOL_STYLES: Record<ToolId, { color: string; width: number; opacity: number }> = {
-  pencil: { color: "#1c1a17", width: 2, opacity: 1 },
-  highlighter: { color: "#ffd54a", width: 16, opacity: 0.4 },
-  underline: { color: "#dc2626", width: 2.5, opacity: 1 },
-};
 
 function setStrokeAppearance(context: CanvasRenderingContext2D, style: { color: string; width: number }) {
   context.strokeStyle = style.color;
@@ -71,7 +69,17 @@ function drawStroke(context: CanvasRenderingContext2D, stroke: StrokeData, canva
 // the underlying page came from a native PDF or (eventually, Stage 6) a converted HTML page,
 // per US-4.6. A transparent canvas sits exactly over the rendered page canvas (same pixel
 // width/height, absolutely positioned within a wrapper the page canvas itself sizes).
-export function AnnotationLayer({ pageNumber, width, height, tool, mode = "freehand", strokes = [], onStrokeComplete }: AnnotationLayerProps) {
+export function AnnotationLayer({
+  pageNumber,
+  width,
+  height,
+  tool,
+  color,
+  strokeWidth,
+  mode = "freehand",
+  strokes = [],
+  onStrokeComplete,
+}: AnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
@@ -82,10 +90,12 @@ export function AnnotationLayer({ pageNumber, width, height, tool, mode = "freeh
   // accumulates every point of the in-progress stroke, so the whole ordered path can be
   // handed off to the parent once the stroke finishes - not just used for live drawing.
   const currentPointsRef = useRef<Point[]>([]);
-  // the tool/mode selected when the CURRENT stroke started - if the user somehow switches
-  // either mid-drag, the stroke should stay consistent rather than changing partway through.
+  // the tool/mode/style selected when the CURRENT stroke started - if the user somehow
+  // changes any of these mid-drag (switches tools, or tweaks the color/width picker), the
+  // stroke should stay consistent rather than changing partway through.
   const activeToolRef = useRef<ToolId>(tool);
   const activeModeRef = useRef<DrawMode>(mode);
+  const activeStyleRef = useRef({ color, width: strokeWidth, opacity: TOOL_OPACITY[tool] });
   // live-drawing buffers for a stroke in progress. `snapshotRef` holds the canvas's pixels as
   // they were right before this stroke started; used to erase and redraw a straight-line
   // preview on every move, and (together with `bufferRef`, which accumulates this stroke's
@@ -143,18 +153,20 @@ export function AnnotationLayer({ pageNumber, width, height, tool, mode = "freeh
     drawingRef.current = true;
     activeToolRef.current = tool;
     activeModeRef.current = mode;
+    activeStyleRef.current = { color, width: strokeWidth, opacity: TOOL_OPACITY[tool] };
     lastPointRef.current = point;
     firstPointRef.current = point;
     currentPointsRef.current = [point];
 
-    const needsSnapshot = mode === "straight" || TOOL_STYLES[tool].opacity < 1;
+    const opacity = TOOL_OPACITY[tool];
+    const needsSnapshot = mode === "straight" || opacity < 1;
     if (needsSnapshot) {
       if (!snapshotRef.current) snapshotRef.current = document.createElement("canvas");
       snapshotRef.current.width = canvas.width;
       snapshotRef.current.height = canvas.height;
       snapshotRef.current.getContext("2d")?.drawImage(canvas, 0, 0);
     }
-    if (mode !== "straight" && TOOL_STYLES[tool].opacity < 1) {
+    if (mode !== "straight" && opacity < 1) {
       if (!bufferRef.current) bufferRef.current = document.createElement("canvas");
       bufferRef.current.width = canvas.width;
       bufferRef.current.height = canvas.height;
@@ -170,7 +182,7 @@ export function AnnotationLayer({ pageNumber, width, height, tool, mode = "freeh
     const last = lastPointRef.current;
     if (!canvas || !context || !point || !last) return;
 
-    const style = TOOL_STYLES[activeToolRef.current];
+    const style = activeStyleRef.current;
 
     if (activeModeRef.current === "straight") {
       const snapshot = snapshotRef.current;
@@ -237,7 +249,7 @@ export function AnnotationLayer({ pageNumber, width, height, tool, mode = "freeh
     const points = currentPointsRef.current;
     // a plain click with no drag produces a single point - not a stroke worth keeping.
     if (drawingRef.current && points.length > 1) {
-      onStrokeComplete?.({ tool: activeToolRef.current, ...TOOL_STYLES[activeToolRef.current], points });
+      onStrokeComplete?.({ tool: activeToolRef.current, ...activeStyleRef.current, points });
     }
 
     drawingRef.current = false;
