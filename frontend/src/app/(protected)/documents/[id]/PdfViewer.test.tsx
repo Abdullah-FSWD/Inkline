@@ -220,6 +220,249 @@ describe("PdfViewer", () => {
     await vi.waitFor(() => expect(ctx.stroke.mock.calls.length).toBeGreaterThan(strokeCallsAfterDrawing));
   });
 
+  it("erasing a stroke actually removes it from stored state, not just the current canvas paint", async () => {
+    // confirms the eraser's onEraseStroke plumbing genuinely updates strokesByPage (not just
+    // AnnotationLayer's own immediate-redraw optimization) - verified by navigating away and
+    // back, which forces a real redraw from stored state alone.
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 2 }) });
+    const user = userEvent.setup();
+
+    const ctx = {
+      strokeStyle: "",
+      lineWidth: 0,
+      lineCap: "",
+      lineJoin: "",
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      drawImage: vi.fn(),
+      clearRect: vi.fn(),
+    };
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
+    HTMLCanvasElement.prototype.getBoundingClientRect = vi.fn(() => ({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 150,
+      right: 100,
+      bottom: 150,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    }));
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    function pointer(type: string, x: number, y: number) {
+      const canvas = screen.getByTestId("annotation-layer");
+      act(() => {
+        const event = new Event(type, { bubbles: true }) as PointerEvent;
+        Object.assign(event, { clientX: x, clientY: y, pointerId: 1 });
+        canvas.dispatchEvent(event);
+      });
+    }
+
+    // draw a pencil stroke
+    pointer("pointerdown", 0, 50);
+    pointer("pointermove", 100, 50);
+    pointer("pointerup", 100, 50);
+
+    // switch to eraser and drag across the same line
+    await user.click(screen.getByRole("radio", { name: /^eraser/i }));
+    pointer("pointerdown", 20, 50);
+    pointer("pointermove", 40, 50);
+    pointer("pointerup", 40, 50);
+
+    const strokeCallsAfterErase = ctx.stroke.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: /next page/i }));
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+    await user.click(screen.getByRole("button", { name: /previous page/i }));
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    // give the remount's mount effect a tick to run, then confirm no NEW stroke() calls
+    // happened - there's nothing left in stored state to redraw.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.stroke.mock.calls.length).toBe(strokeCallsAfterErase);
+  });
+
+  it("undoing a drawn stroke removes it immediately from the current page, not just on revisit", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    const ctx = {
+      strokeStyle: "",
+      lineWidth: 0,
+      lineCap: "",
+      lineJoin: "",
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      drawImage: vi.fn(),
+      clearRect: vi.fn(),
+    };
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
+    HTMLCanvasElement.prototype.getBoundingClientRect = vi.fn(() => ({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 150,
+      right: 100,
+      bottom: 150,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    }));
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    function pointer(type: string, x: number, y: number) {
+      const canvas = screen.getByTestId("annotation-layer");
+      act(() => {
+        const event = new Event(type, { bubbles: true }) as PointerEvent;
+        Object.assign(event, { clientX: x, clientY: y, pointerId: 1 });
+        canvas.dispatchEvent(event);
+      });
+    }
+
+    expect(screen.getByRole("button", { name: /^undo$/i })).toBeDisabled();
+
+    pointer("pointerdown", 0, 0);
+    pointer("pointermove", 10, 10);
+    pointer("pointerup", 10, 10);
+
+    expect(screen.getByRole("button", { name: /^undo$/i })).toBeEnabled();
+    const clearCallsBeforeUndo = ctx.clearRect.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: /^undo$/i }));
+
+    // the imperative redraw handle clears and repaints right away - no page navigation needed.
+    expect(ctx.clearRect.mock.calls.length).toBeGreaterThan(clearCallsBeforeUndo);
+    expect(screen.getByRole("button", { name: /^undo$/i })).toBeDisabled();
+  });
+
+  it("undoing an erase restores the stroke", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });
+    const user = userEvent.setup();
+
+    const ctx = {
+      strokeStyle: "",
+      lineWidth: 0,
+      lineCap: "",
+      lineJoin: "",
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      drawImage: vi.fn(),
+      clearRect: vi.fn(),
+    };
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
+    HTMLCanvasElement.prototype.getBoundingClientRect = vi.fn(() => ({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 150,
+      right: 100,
+      bottom: 150,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    }));
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    function pointer(type: string, x: number, y: number) {
+      const canvas = screen.getByTestId("annotation-layer");
+      act(() => {
+        const event = new Event(type, { bubbles: true }) as PointerEvent;
+        Object.assign(event, { clientX: x, clientY: y, pointerId: 1 });
+        canvas.dispatchEvent(event);
+      });
+    }
+
+    pointer("pointerdown", 0, 50);
+    pointer("pointermove", 100, 50);
+    pointer("pointerup", 100, 50);
+
+    await user.click(screen.getByRole("radio", { name: /^eraser/i }));
+    pointer("pointerdown", 20, 50);
+    pointer("pointermove", 40, 50);
+    pointer("pointerup", 40, 50);
+
+    ctx.moveTo.mockClear();
+    await user.click(screen.getByRole("button", { name: /^undo$/i }));
+
+    // the restored stroke is traced again by the redraw handle
+    expect(ctx.moveTo).toHaveBeenCalledWith(0, 50);
+  });
+
+  it("undoes the last action with Ctrl+Z, but not while the page-number input is focused", async () => {
+    getPage.mockResolvedValue(mockPage());
+    getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 3 }) });
+    const user = userEvent.setup();
+
+    const ctx = {
+      strokeStyle: "",
+      lineWidth: 0,
+      lineCap: "",
+      lineJoin: "",
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      drawImage: vi.fn(),
+      clearRect: vi.fn(),
+    };
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(ctx) as never;
+    HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
+    HTMLCanvasElement.prototype.getBoundingClientRect = vi.fn(() => ({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 150,
+      right: 100,
+      bottom: 150,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    }));
+    render(<PdfViewer fileUrl="http://localhost:4000/documents/1/file" />);
+    await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(1));
+
+    function pointer(type: string, x: number, y: number) {
+      const canvas = screen.getByTestId("annotation-layer");
+      act(() => {
+        const event = new Event(type, { bubbles: true }) as PointerEvent;
+        Object.assign(event, { clientX: x, clientY: y, pointerId: 1 });
+        canvas.dispatchEvent(event);
+      });
+    }
+
+    pointer("pointerdown", 0, 0);
+    pointer("pointermove", 10, 10);
+    pointer("pointerup", 10, 10);
+    expect(screen.getByRole("button", { name: /^undo$/i })).toBeEnabled();
+
+    // focused in the page-number input - Ctrl+Z here should be a no-op for undo
+    await user.click(screen.getByLabelText(/page number/i));
+    await user.keyboard("{Control>}z{/Control}");
+    expect(screen.getByRole("button", { name: /^undo$/i })).toBeEnabled();
+
+    // now away from any input - Ctrl+Z should undo
+    await user.click(document.body);
+    await user.keyboard("{Control>}z{/Control}");
+    expect(screen.getByRole("button", { name: /^undo$/i })).toBeDisabled();
+  });
+
   it("draws with pencil by default and switches to highlighter when that tool is selected", async () => {
     getPage.mockResolvedValue(mockPage());
     getDocument.mockReturnValue({ promise: Promise.resolve({ getPage, numPages: 1 }) });

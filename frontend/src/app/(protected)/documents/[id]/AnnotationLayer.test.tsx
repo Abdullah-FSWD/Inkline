@@ -1,7 +1,7 @@
-import { StrictMode } from "react";
+import { createRef, StrictMode } from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { AnnotationLayer } from "./AnnotationLayer";
+import { AnnotationLayer, type AnnotationLayerHandle } from "./AnnotationLayer";
 
 function mockContext() {
   return {
@@ -166,6 +166,8 @@ describe("AnnotationLayer", () => {
   it("redraws a stored opaque stroke directly on the main canvas", () => {
     const strokes = [
       {
+        id: "s1",
+        pageNumber: 1,
         tool: "pencil" as const,
         color: "#111111",
         width: 3,
@@ -193,6 +195,8 @@ describe("AnnotationLayer", () => {
   it("redraws a stored semi-transparent stroke via a single composite, at the stored opacity", () => {
     const strokes = [
       {
+        id: "s1",
+        pageNumber: 1,
         tool: "highlighter" as const,
         color: "#ffd54a",
         width: 16,
@@ -221,6 +225,8 @@ describe("AnnotationLayer", () => {
     // until the mount effect started clearing the canvas first.
     const strokes = [
       {
+        id: "s1",
+        pageNumber: 1,
         tool: "highlighter" as const,
         color: "#ffd54a",
         width: 16,
@@ -490,5 +496,266 @@ describe("AnnotationLayer", () => {
     firePointer(canvas, "pointerup", 5, 5);
 
     expect(onStrokeComplete).not.toHaveBeenCalled();
+  });
+
+  it("erases a stroke the eraser crosses and reports its id", () => {
+    const onEraseStroke = vi.fn();
+    const strokes = [
+      {
+        id: "stroke-1",
+        pageNumber: 1,
+        tool: "pencil" as const,
+        color: "#1c1a17",
+        width: 2,
+        opacity: 1,
+        points: [
+          { x: 0, y: 50 },
+          { x: 100, y: 50 },
+        ],
+      },
+    ];
+
+    render(
+      <AnnotationLayer
+        pageNumber={1}
+        width={100}
+        height={150}
+        tool="eraser"
+        color="#94a3b8"
+        strokeWidth={16}
+        strokes={strokes}
+        onEraseStroke={onEraseStroke}
+      />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+
+    // drag straight through the stroke's horizontal line at y=50
+    firePointer(canvas, "pointerdown", 20, 50);
+    firePointer(canvas, "pointermove", 40, 50);
+
+    expect(onEraseStroke).toHaveBeenCalledWith("stroke-1");
+  });
+
+  it("does not erase a stroke the eraser never gets near", () => {
+    const onEraseStroke = vi.fn();
+    const strokes = [
+      {
+        id: "stroke-1",
+        pageNumber: 1,
+        tool: "pencil" as const,
+        color: "#1c1a17",
+        width: 2,
+        opacity: 1,
+        points: [
+          { x: 0, y: 0 },
+          { x: 10, y: 0 },
+        ],
+      },
+    ];
+
+    render(
+      <AnnotationLayer
+        pageNumber={1}
+        width={100}
+        height={150}
+        tool="eraser"
+        color="#94a3b8"
+        strokeWidth={16}
+        strokes={strokes}
+        onEraseStroke={onEraseStroke}
+      />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+
+    firePointer(canvas, "pointerdown", 90, 140);
+    firePointer(canvas, "pointermove", 95, 145);
+
+    expect(onEraseStroke).not.toHaveBeenCalled();
+  });
+
+  it("does not report the same stroke twice within one continuous eraser drag", () => {
+    const onEraseStroke = vi.fn();
+    const strokes = [
+      {
+        id: "stroke-1",
+        pageNumber: 1,
+        tool: "pencil" as const,
+        color: "#1c1a17",
+        width: 2,
+        opacity: 1,
+        points: [
+          { x: 0, y: 50 },
+          { x: 100, y: 50 },
+        ],
+      },
+    ];
+
+    render(
+      <AnnotationLayer
+        pageNumber={1}
+        width={100}
+        height={150}
+        tool="eraser"
+        color="#94a3b8"
+        strokeWidth={16}
+        strokes={strokes}
+        onEraseStroke={onEraseStroke}
+      />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+
+    // cross the same line twice in one drag (down, up, back down again)
+    firePointer(canvas, "pointerdown", 10, 50);
+    firePointer(canvas, "pointermove", 20, 50);
+    firePointer(canvas, "pointermove", 30, 50);
+    firePointer(canvas, "pointermove", 40, 50);
+
+    expect(onEraseStroke).toHaveBeenCalledTimes(1);
+  });
+
+  it("redraws immediately from the remaining strokes when one is erased", () => {
+    const strokes = [
+      {
+        id: "erase-me",
+        pageNumber: 1,
+        tool: "pencil" as const,
+        color: "#1c1a17",
+        width: 2,
+        opacity: 1,
+        points: [
+          { x: 0, y: 50 },
+          { x: 100, y: 50 },
+        ],
+      },
+      {
+        id: "keep-me",
+        pageNumber: 1,
+        tool: "pencil" as const,
+        color: "#1c1a17",
+        width: 2,
+        opacity: 1,
+        points: [
+          { x: 0, y: 100 },
+          { x: 100, y: 100 },
+        ],
+      },
+    ];
+
+    render(
+      <AnnotationLayer
+        pageNumber={1}
+        width={100}
+        height={150}
+        tool="eraser"
+        color="#94a3b8"
+        strokeWidth={16}
+        strokes={strokes}
+      />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+    const ctx = mainContextOf(canvas);
+    ctx.moveTo.mockClear();
+
+    firePointer(canvas, "pointerdown", 20, 50);
+
+    // the immediate redraw traces only the surviving stroke (y=100), not the erased one
+    expect(ctx.moveTo).toHaveBeenCalledWith(0, 100);
+    expect(ctx.moveTo).not.toHaveBeenCalledWith(0, 50);
+  });
+
+  it("does not create a stroke via onStrokeComplete when erasing", () => {
+    const onStrokeComplete = vi.fn();
+    const strokes = [
+      {
+        id: "stroke-1",
+        pageNumber: 1,
+        tool: "pencil" as const,
+        color: "#1c1a17",
+        width: 2,
+        opacity: 1,
+        points: [
+          { x: 0, y: 50 },
+          { x: 100, y: 50 },
+        ],
+      },
+    ];
+
+    render(
+      <AnnotationLayer
+        pageNumber={1}
+        width={100}
+        height={150}
+        tool="eraser"
+        color="#94a3b8"
+        strokeWidth={16}
+        strokes={strokes}
+        onStrokeComplete={onStrokeComplete}
+      />
+    );
+    const canvas = screen.getByTestId("annotation-layer");
+
+    firePointer(canvas, "pointerdown", 20, 50);
+    firePointer(canvas, "pointermove", 40, 50);
+    firePointer(canvas, "pointerup", 40, 50);
+
+    expect(onStrokeComplete).not.toHaveBeenCalled();
+  });
+
+  it("exposes an imperative redraw handle that repaints from a given stroke list (US-4.5 undo)", () => {
+    const ref = createRef<AnnotationLayerHandle>();
+    const strokes = [
+      {
+        id: "s1",
+        pageNumber: 1,
+        tool: "pencil" as const,
+        color: "#1c1a17",
+        width: 2,
+        opacity: 1,
+        points: [
+          { x: 1, y: 1 },
+          { x: 2, y: 2 },
+        ],
+      },
+    ];
+
+    render(<AnnotationLayer ref={ref} pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} />);
+    const ctx = mainContextOf(screen.getByTestId("annotation-layer"));
+    ctx.moveTo.mockClear();
+    ctx.clearRect.mockClear();
+
+    ref.current?.redraw(strokes);
+
+    expect(ctx.clearRect).toHaveBeenCalledTimes(1);
+    expect(ctx.moveTo).toHaveBeenCalledWith(1, 1);
+    expect(ctx.lineTo).toHaveBeenCalledWith(2, 2);
+  });
+
+  it("redraw handle repaints with fewer strokes when passed a shorter list (undoing an add)", () => {
+    const ref = createRef<AnnotationLayerHandle>();
+    const strokes = [
+      {
+        id: "s1",
+        pageNumber: 1,
+        tool: "pencil" as const,
+        color: "#1c1a17",
+        width: 2,
+        opacity: 1,
+        points: [
+          { x: 5, y: 5 },
+          { x: 6, y: 6 },
+        ],
+      },
+    ];
+
+    render(
+      <AnnotationLayer ref={ref} pageNumber={1} width={100} height={150} tool="pencil" color="#1c1a17" strokeWidth={2} strokes={strokes} />
+    );
+    const ctx = mainContextOf(screen.getByTestId("annotation-layer"));
+    ctx.moveTo.mockClear();
+
+    // simulate undoing the add: redraw with the stroke removed
+    ref.current?.redraw([]);
+
+    expect(ctx.moveTo).not.toHaveBeenCalled();
   });
 });

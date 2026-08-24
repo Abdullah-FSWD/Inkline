@@ -3,24 +3,29 @@ export interface Point {
   y: number;
 }
 
-export const TOOLS = ["pencil", "highlighter", "underline"] as const;
+export const TOOLS = ["pencil", "highlighter", "underline", "eraser"] as const;
 export type ToolId = (typeof TOOLS)[number];
 
 export const DRAW_MODES = ["straight", "freehand"] as const;
 export type DrawMode = (typeof DRAW_MODES)[number];
 
 // Opacity is intrinsic to a tool's identity (a highlighter that isn't semi-transparent isn't
-// a highlighter) and isn't user-configurable, unlike color/width.
+// a highlighter) and isn't user-configurable, unlike color/width. Meaningless for eraser,
+// which never paints ink - kept at 1 only so every tool has an entry.
 export const TOOL_OPACITY: Record<ToolId, number> = {
   pencil: 1,
   highlighter: 0.4,
   underline: 1,
+  eraser: 1,
 };
 
+// eraser's `color` is never actually rendered (it doesn't paint ink) - kept only so every
+// tool has a uniform entry; its `width` doubles as the eraser's hit-test radius (US-4.5).
 export const DEFAULT_TOOL_STYLE: Record<ToolId, { color: string; width: number }> = {
   pencil: { color: "#1c1a17", width: 2 },
   highlighter: { color: "#ffd54a", width: 16 },
   underline: { color: "#dc2626", width: 2.5 },
+  eraser: { color: "#94a3b8", width: 16 },
 };
 
 // a shared palette rather than per-tool palettes - simpler to reason about and to build a UI
@@ -31,6 +36,7 @@ export const WIDTH_RANGE: Record<ToolId, { min: number; max: number; step: numbe
   pencil: { min: 1, max: 8, step: 1 },
   highlighter: { min: 8, max: 32, step: 2 },
   underline: { min: 1, max: 8, step: 1 },
+  eraser: { min: 8, max: 48, step: 4 },
 };
 
 // What AnnotationLayer itself knows about a stroke it just finished drawing - everything

@@ -1,8 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Pencil, Highlighter, Underline, Slash, Spline, Minus, Plus } from "lucide-react";
-import { AnnotationLayer } from "./AnnotationLayer";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  Pencil,
+  Highlighter,
+  Underline,
+  Eraser,
+  Slash,
+  Spline,
+  Minus,
+  Plus,
+  Undo2,
+} from "lucide-react";
+import { AnnotationLayer, type AnnotationLayerHandle } from "./AnnotationLayer";
 import {
   COLOR_PALETTE,
   DEFAULT_TOOL_STYLE,
@@ -15,8 +30,22 @@ import {
   type ToolId,
 } from "./annotations";
 
-const TOOL_ICONS: Record<ToolId, typeof Pencil> = { pencil: Pencil, highlighter: Highlighter, underline: Underline };
-const TOOL_LABELS: Record<ToolId, string> = { pencil: "Pencil", highlighter: "Highlighter", underline: "Underline" };
+// what one undo step reverts - either the most recent stroke added (undo removes it) or the
+// most recent erase (undo restores it, at the index it originally occupied so overlapping
+// strokes go back to their original stacking order).
+type UndoAction =
+  | { type: "add"; pageNumber: number; stroke: Stroke }
+  | { type: "erase"; pageNumber: number; stroke: Stroke; index: number };
+
+function applyUndo(pageStrokes: Stroke[], action: UndoAction): Stroke[] {
+  if (action.type === "add") return pageStrokes.filter((s) => s.id !== action.stroke.id);
+  const restored = [...pageStrokes];
+  restored.splice(Math.min(action.index, restored.length), 0, action.stroke);
+  return restored;
+}
+
+const TOOL_ICONS: Record<ToolId, typeof Pencil> = { pencil: Pencil, highlighter: Highlighter, underline: Underline, eraser: Eraser };
+const TOOL_LABELS: Record<ToolId, string> = { pencil: "Pencil", highlighter: "Highlighter", underline: "Underline", eraser: "Eraser" };
 const MODE_ICONS: Record<DrawMode, typeof Slash> = { straight: Slash, freehand: Spline };
 const MODE_LABELS: Record<DrawMode, string> = { straight: "Straight line", freehand: "Freehand" };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,6 +67,7 @@ interface PdfViewerProps {
 export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const annotationLayerRef = useRef<AnnotationLayerHandle>(null);
   const [pdf, setPdf] = useState<PdfDocumentProxy | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(1);
@@ -60,6 +90,11 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
   // `key={currentPage}` below), which would otherwise wipe out a page's strokes the moment
   // you navigated away from it.
   const [strokesByPage, setStrokesByPage] = useState<Record<number, Stroke[]>>({});
+  // one global undo stack, not scoped per page (US-4.5) - matches how undo works in most
+  // drawing apps: it reverts whatever you did most recently, regardless of which page you're
+  // currently viewing. Undoing an action on a page you're not looking at updates its stored
+  // strokes silently; you'd only see it if you navigated there.
+  const [undoStack, setUndoStack] = useState<UndoAction[]>([]);
   // the selected tool applies across the whole document, not per page - unlike strokes, it
   // isn't reset on page navigation or document switch.
   const [tool, setTool] = useState<ToolId>("pencil");
@@ -92,6 +127,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
       setFitMode(null);
       setError(null);
       setStrokesByPage({});
+      setUndoStack([]);
       setRenderedPage(0);
 
       try {
@@ -195,7 +231,55 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
       ...prev,
       [currentPage]: [...(prev[currentPage] ?? []), withId],
     }));
+    setUndoStack((stack) => [...stack, { type: "add", pageNumber: currentPage, stroke: withId }]);
   }
+
+  function handleEraseStroke(id: string) {
+    const pageStrokes = strokesByPage[currentPage] ?? [];
+    const index = pageStrokes.findIndex((stroke) => stroke.id === id);
+    if (index === -1) return;
+    const stroke = pageStrokes[index];
+
+    setStrokesByPage((prev) => ({
+      ...prev,
+      [currentPage]: (prev[currentPage] ?? []).filter((s) => s.id !== id),
+    }));
+    setUndoStack((stack) => [...stack, { type: "erase", pageNumber: currentPage, stroke, index }]);
+  }
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const action = undoStack[undoStack.length - 1];
+    setUndoStack((stack) => stack.slice(0, -1));
+
+    const updated = applyUndo(strokesByPage[action.pageNumber] ?? [], action);
+    setStrokesByPage((prev) => ({ ...prev, [action.pageNumber]: updated }));
+
+    // strokesByPage alone won't repaint the page currently on screen - AnnotationLayer only
+    // redraws from its `strokes` prop once, at mount, to avoid double-painting a stroke
+    // that's already been drawn live. Undo needs that redraw to happen right now instead.
+    if (action.pageNumber === currentPage) {
+      annotationLayerRef.current?.redraw(updated);
+    }
+  }, [undoStack, strokesByPage, currentPage]);
+
+  // Ctrl/Cmd+Z undoes the last annotation action, unless the user is typing somewhere (the
+  // page-number jump input) - a global shortcut shouldn't swallow keystrokes meant for a field.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const isUndoShortcut = (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z";
+      if (!isUndoShortcut) return;
+
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+
+      e.preventDefault();
+      handleUndo();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleUndo]);
 
   function commitPageInput() {
     const raw = pageInputRef.current?.value ?? "";
@@ -238,6 +322,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
           <canvas ref={canvasRef} className="rounded-lg shadow-md" />
           {renderedPage === currentPage && (
             <AnnotationLayer
+              ref={annotationLayerRef}
               key={currentPage}
               pageNumber={currentPage}
               width={pageSize.width}
@@ -248,6 +333,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
               strokeWidth={toolStyles[tool].width}
               strokes={strokesByPage[currentPage]}
               onStrokeComplete={handleStrokeComplete}
+              onEraseStroke={handleEraseStroke}
             />
           )}
         </div>
@@ -260,6 +346,19 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
           all - `showToolbar` is the reader's own explicit choice to hide all chrome). */}
       {pdf && showToolbar && (
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-surface-border bg-surface px-4 py-2">
+          <button
+            type="button"
+            aria-label="Undo"
+            title="Undo (Ctrl+Z)"
+            disabled={undoStack.length === 0}
+            onClick={handleUndo}
+            className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-input hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          >
+            <Undo2 size={18} />
+          </button>
+
+          <div className="mx-1 hidden h-4 w-px bg-surface-border sm:block" />
+
           <div className="flex items-center gap-1.5" role="radiogroup" aria-label="Annotation tool">
             {TOOLS.map((id) => {
               const Icon = TOOL_ICONS[id];
@@ -304,27 +403,29 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
             </div>
           )}
 
-          <div className="flex items-center gap-1" role="radiogroup" aria-label="Annotation color">
-            {COLOR_PALETTE.map((color) => (
-              <button
-                key={color}
-                type="button"
-                role="radio"
-                aria-checked={toolStyles[tool].color === color}
-                aria-label={color}
-                onClick={() => setToolColor(color)}
-                style={{ backgroundColor: color }}
-                className={`h-5 w-5 rounded-full border-2 transition-transform ${
-                  toolStyles[tool].color === color ? "scale-110 border-accent" : "border-transparent hover:scale-105"
-                }`}
-              />
-            ))}
-          </div>
+          {tool !== "eraser" && (
+            <div className="flex items-center gap-1" role="radiogroup" aria-label="Annotation color">
+              {COLOR_PALETTE.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  role="radio"
+                  aria-checked={toolStyles[tool].color === color}
+                  aria-label={color}
+                  onClick={() => setToolColor(color)}
+                  style={{ backgroundColor: color }}
+                  className={`h-5 w-5 rounded-full border-2 transition-transform ${
+                    toolStyles[tool].color === color ? "scale-110 border-accent" : "border-transparent hover:scale-105"
+                  }`}
+                />
+              ))}
+            </div>
+          )}
 
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              aria-label="Decrease width"
+              aria-label={tool === "eraser" ? "Decrease eraser size" : "Decrease width"}
               disabled={toolStyles[tool].width <= WIDTH_RANGE[tool].min}
               onClick={() => setToolWidth(Math.max(WIDTH_RANGE[tool].min, toolStyles[tool].width - WIDTH_RANGE[tool].step))}
               className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
@@ -334,7 +435,7 @@ export function PdfViewer({ fileUrl, onLoaded, showToolbar = true }: PdfViewerPr
             <span className="w-6 text-center text-xs text-muted-foreground">{toolStyles[tool].width}</span>
             <button
               type="button"
-              aria-label="Increase width"
+              aria-label={tool === "eraser" ? "Increase eraser size" : "Increase width"}
               disabled={toolStyles[tool].width >= WIDTH_RANGE[tool].max}
               onClick={() => setToolWidth(Math.min(WIDTH_RANGE[tool].max, toolStyles[tool].width + WIDTH_RANGE[tool].step))}
               className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground disabled:pointer-events-none disabled:opacity-30"

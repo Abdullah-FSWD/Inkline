@@ -1,7 +1,17 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { TOOL_OPACITY, type DrawMode, type Point, type StrokeData, type ToolId } from "./annotations";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { TOOL_OPACITY, type DrawMode, type Point, type Stroke, type StrokeData, type ToolId } from "./annotations";
+
+export interface AnnotationLayerHandle {
+  // an imperative escape hatch for the one case ordinary props can't cover: undo (US-4.5)
+  // affecting the page currently on screen. The mount effect only ever redraws once, on
+  // purpose (see initialStrokesRef below) - reacting to every `strokes` prop change would
+  // double-paint a stroke that's already been painted live. Undo needs the opposite: a
+  // deliberate, parent-triggered redraw from a specific stroke list, decoupled from the
+  // normal prop flow so it can't be confused with a live draw or an eraser's own strokes prop.
+  redraw: (strokes: Stroke[]) => void;
+}
 
 interface AnnotationLayerProps {
   pageNumber: number;
@@ -9,14 +19,18 @@ interface AnnotationLayerProps {
   height: number;
   tool: ToolId;
   // the CURRENT tool's user-chosen color/width (US-4.4) - opacity is intrinsic to the tool
-  // itself (TOOL_OPACITY) and isn't user-configurable, so it isn't passed as a prop.
+  // itself (TOOL_OPACITY) and isn't user-configurable, so it isn't passed as a prop. For the
+  // eraser, width doubles as its hit-test radius (US-4.5) - it has no color, it paints nothing.
   color: string;
   strokeWidth: number;
   // only meaningful for tools that support more than one drawing mode (currently just
   // underline); ignored by tools that only ever draw freehand.
   mode?: DrawMode;
-  strokes?: StrokeData[];
+  strokes?: Stroke[];
   onStrokeComplete?: (stroke: StrokeData) => void;
+  // fired once per stroke the eraser touches during a drag (ids, since the parent owns the
+  // authoritative strokesByPage list keyed by id - this layer only asks it to remove one).
+  onEraseStroke?: (id: string) => void;
 }
 
 function setStrokeAppearance(context: CanvasRenderingContext2D, style: { color: string; width: number }) {
@@ -65,21 +79,44 @@ function drawStroke(context: CanvasRenderingContext2D, stroke: StrokeData, canva
   context.globalAlpha = 1;
 }
 
+function redrawAll(context: CanvasRenderingContext2D, strokes: StrokeData[], canvasWidth: number, canvasHeight: number) {
+  context.clearRect(0, 0, canvasWidth, canvasHeight);
+  for (const stroke of strokes) {
+    drawStroke(context, stroke, canvasWidth, canvasHeight);
+  }
+}
+
+function distanceToSegment(point: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(point.x - a.x, point.y - a.y);
+
+  let t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared;
+  t = Math.max(0, Math.min(1, t));
+  const closestX = a.x + t * dx;
+  const closestY = a.y + t * dy;
+  return Math.hypot(point.x - closestX, point.y - closestY);
+}
+
+function distanceToStroke(point: Point, stroke: Stroke): number {
+  if (stroke.points.length === 1) return Math.hypot(point.x - stroke.points[0].x, point.y - stroke.points[0].y);
+
+  let min = Infinity;
+  for (let i = 0; i < stroke.points.length - 1; i++) {
+    min = Math.min(min, distanceToSegment(point, stroke.points[i], stroke.points[i + 1]));
+  }
+  return min;
+}
+
 // Deliberately depends on nothing but page dimensions and a page number - never on whether
 // the underlying page came from a native PDF or (eventually, Stage 6) a converted HTML page,
 // per US-4.6. A transparent canvas sits exactly over the rendered page canvas (same pixel
 // width/height, absolutely positioned within a wrapper the page canvas itself sizes).
-export function AnnotationLayer({
-  pageNumber,
-  width,
-  height,
-  tool,
-  color,
-  strokeWidth,
-  mode = "freehand",
-  strokes = [],
-  onStrokeComplete,
-}: AnnotationLayerProps) {
+export const AnnotationLayer = forwardRef<AnnotationLayerHandle, AnnotationLayerProps>(function AnnotationLayer(
+  { pageNumber, width, height, tool, color, strokeWidth, mode = "freehand", strokes = [], onStrokeComplete, onEraseStroke },
+  ref
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
@@ -104,6 +141,18 @@ export function AnnotationLayer({
   // applies after the fact, applied live here instead.
   const snapshotRef = useRef<HTMLCanvasElement | null>(null);
   const bufferRef = useRef<HTMLCanvasElement | null>(null);
+  // unlike `initialStrokesRef` below, this DOES stay in sync with the `strokes` prop - the
+  // eraser needs to hit-test against whatever is currently stored, including strokes it just
+  // erased moments ago earlier in the same drag.
+  const liveStrokesRef = useRef(strokes);
+  useEffect(() => {
+    liveStrokesRef.current = strokes;
+  }, [strokes]);
+  // ids already erased during the CURRENT drag - `strokes` only reflects a removal after the
+  // parent's state update round-trips back down as a new prop, which doesn't happen
+  // synchronously between pointermove events, so without this the same stroke could be
+  // reported as erased multiple times before the prop catches up.
+  const erasedThisDragRef = useRef<Set<string>>(new Set());
   // captured once, at mount, deliberately not kept in sync with the `strokes` prop
   // afterwards: a stroke drawn during this mount is already painted live by the pointer
   // handlers below, so redrawing on every prop change would double-paint it. This layer
@@ -121,12 +170,22 @@ export function AnnotationLayer({
     // twice looks identical either way, but redrawing a semi-transparent one twice silently
     // stacks its alpha (0.4 twice ≈ 0.64) - a real bug that only shows up for non-opaque
     // tools. Clearing first makes the effect correct regardless of how many times it runs.
-    context.clearRect(0, 0, canvas.width, canvas.height);
-
-    for (const stroke of initialStrokesRef.current) {
-      drawStroke(context, stroke, canvas.width, canvas.height);
-    }
+    redrawAll(context, initialStrokesRef.current, canvas.width, canvas.height);
   }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      redraw(newStrokes: Stroke[]) {
+        const canvas = canvasRef.current;
+        const context = canvas?.getContext("2d");
+        if (!canvas || !context) return;
+        liveStrokesRef.current = newStrokes;
+        redrawAll(context, newStrokes, canvas.width, canvas.height);
+      },
+    }),
+    []
+  );
 
   function getPoint(e: React.PointerEvent<HTMLCanvasElement>): Point | null {
     const canvas = canvasRef.current;
@@ -144,6 +203,25 @@ export function AnnotationLayer({
     };
   }
 
+  function eraseAt(point: Point) {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+
+    const radius = activeStyleRef.current.width;
+    const hit = liveStrokesRef.current.find(
+      (stroke) => !erasedThisDragRef.current.has(stroke.id) && distanceToStroke(point, stroke) <= radius / 2 + stroke.width / 2
+    );
+    if (!hit) return;
+
+    erasedThisDragRef.current.add(hit.id);
+    // redraw immediately from what's left, rather than waiting for the parent's state update
+    // to round-trip back down as a new `strokes` prop - instant visual feedback while erasing.
+    liveStrokesRef.current = liveStrokesRef.current.filter((s) => s.id !== hit.id);
+    redrawAll(context, liveStrokesRef.current, canvas.width, canvas.height);
+    onEraseStroke?.(hit.id);
+  }
+
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current;
     const point = getPoint(e);
@@ -157,6 +235,12 @@ export function AnnotationLayer({
     lastPointRef.current = point;
     firstPointRef.current = point;
     currentPointsRef.current = [point];
+
+    if (tool === "eraser") {
+      erasedThisDragRef.current = new Set();
+      eraseAt(point);
+      return;
+    }
 
     const opacity = TOOL_OPACITY[tool];
     const needsSnapshot = mode === "straight" || opacity < 1;
@@ -176,11 +260,19 @@ export function AnnotationLayer({
   function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!drawingRef.current) return;
 
+    const point = getPoint(e);
+    if (!point) return;
+
+    if (activeToolRef.current === "eraser") {
+      eraseAt(point);
+      lastPointRef.current = point;
+      return;
+    }
+
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
-    const point = getPoint(e);
     const last = lastPointRef.current;
-    if (!canvas || !context || !point || !last) return;
+    if (!canvas || !context || !last) return;
 
     const style = activeStyleRef.current;
 
@@ -247,8 +339,10 @@ export function AnnotationLayer({
 
   function endStroke() {
     const points = currentPointsRef.current;
+    // the eraser never creates a stroke of its own - it only removes others, already
+    // reported one-by-one via onEraseStroke as they were touched.
     // a plain click with no drag produces a single point - not a stroke worth keeping.
-    if (drawingRef.current && points.length > 1) {
+    if (drawingRef.current && activeToolRef.current !== "eraser" && points.length > 1) {
       onStrokeComplete?.({ tool: activeToolRef.current, ...activeStyleRef.current, points });
     }
 
@@ -273,4 +367,4 @@ export function AnnotationLayer({
       onPointerCancel={endStroke}
     />
   );
-}
+});
