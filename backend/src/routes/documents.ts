@@ -3,6 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { DocumentModel } from "../models/Document.js";
+import { AnnotationModel, ANNOTATION_TOOLS } from "../models/Annotation.js";
 import { uploadFile, deleteFile, openDownloadStream } from "../lib/gridfs.js";
 import { detectFileType } from "../lib/fileType.js";
 
@@ -72,6 +73,97 @@ documentsRouter.get("/:id/file", async (req, res) => {
   downloadStream.pipe(res);
 });
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isValidPoints(value: unknown): value is { x: number; y: number }[] {
+  return (
+    Array.isArray(value) &&
+    value.length >= 2 &&
+    value.every((p) => typeof p === "object" && p !== null && isFiniteNumber(p.x) && isFiniteNumber(p.y))
+  );
+}
+
+// mirrors the client's own StrokeData shape (annotations.ts) - kept intentionally permissive
+// beyond type/range checks, since color is free-form (any CSS color the picker offers, not a
+// fixed enum) and tool-specific width/opacity conventions belong to the client, not this API.
+function validateAnnotationInput(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return "Request body is required.";
+  const b = body as Record<string, unknown>;
+
+  if (!Number.isInteger(b.pageNumber) || (b.pageNumber as number) < 1) return "pageNumber must be a positive integer.";
+  if (typeof b.tool !== "string" || !ANNOTATION_TOOLS.includes(b.tool as (typeof ANNOTATION_TOOLS)[number]))
+    return `tool must be one of: ${ANNOTATION_TOOLS.join(", ")}.`;
+  if (typeof b.color !== "string" || b.color.length === 0) return "color is required.";
+  if (!isFiniteNumber(b.width) || (b.width as number) <= 0) return "width must be a positive number.";
+  if (!isFiniteNumber(b.opacity) || (b.opacity as number) < 0 || (b.opacity as number) > 1) return "opacity must be between 0 and 1.";
+  if (!isValidPoints(b.points)) return "points must be an array of at least 2 {x, y} numeric coordinates.";
+
+  return null;
+}
+
+function toAnnotationResponse(annotation: {
+  _id: unknown;
+  pageNumber: number;
+  tool: string;
+  color: string;
+  width: number;
+  opacity: number;
+  points: { x: number; y: number }[];
+}) {
+  return {
+    id: (annotation._id as { toString(): string }).toString(),
+    pageNumber: annotation.pageNumber,
+    tool: annotation.tool,
+    color: annotation.color,
+    width: annotation.width,
+    opacity: annotation.opacity,
+    points: annotation.points.map((p) => ({ x: p.x, y: p.y })),
+  };
+}
+
+documentsRouter.get("/:id/annotations", async (req, res) => {
+  const document = await DocumentModel.findOne({ _id: req.params.id, ownerId: req.userId }).catch(() => null);
+
+  if (!document) {
+    res.status(404).json({ error: "Document not found." });
+    return;
+  }
+
+  const annotations = await AnnotationModel.find({ documentId: document._id }).sort({ createdAt: 1 });
+  res.status(200).json(annotations.map(toAnnotationResponse));
+});
+
+documentsRouter.post("/:id/annotations", async (req, res) => {
+  const document = await DocumentModel.findOne({ _id: req.params.id, ownerId: req.userId }).catch(() => null);
+
+  if (!document) {
+    res.status(404).json({ error: "Document not found." });
+    return;
+  }
+
+  const validationError = validateAnnotationInput(req.body);
+  if (validationError) {
+    res.status(400).json({ error: validationError });
+    return;
+  }
+
+  const { pageNumber, tool, color, width, opacity, points } = req.body;
+  const annotation = await AnnotationModel.create({
+    documentId: document._id,
+    ownerId: req.userId,
+    pageNumber,
+    tool,
+    color,
+    width,
+    opacity,
+    points,
+  });
+
+  res.status(201).json(toAnnotationResponse(annotation));
+});
+
 documentsRouter.delete("/:id", async (req, res) => {
   const document = await DocumentModel.findOne({ _id: req.params.id, ownerId: req.userId }).catch(() => null);
 
@@ -80,9 +172,8 @@ documentsRouter.delete("/:id", async (req, res) => {
     return;
   }
 
-  // No Page/Annotation records exist yet (Stage 3/4/6) - once they do, cascade their
-  // deletion here too. For now this cascades to the one other thing a document owns:
-  // its file in GridFS.
+  // No Page records exist yet (Stage 6) - once they do, cascade their deletion here too.
+  await AnnotationModel.deleteMany({ documentId: document._id });
   await deleteFile(document.fileId);
   await document.deleteOne();
 
