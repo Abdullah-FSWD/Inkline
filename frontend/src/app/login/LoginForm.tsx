@@ -1,18 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Mail, Lock, Loader2, CircleCheck, TriangleAlert } from "lucide-react";
+import { Mail, Lock, Loader2, TriangleAlert } from "lucide-react";
 import { login, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
 export function LoginForm() {
   const { refresh } = useAuth();
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,27 +30,13 @@ export function LoginForm() {
     try {
       await login(normalizedEmail, password);
       await refresh();
-      setSuccess(true);
+      // straight to the library rather than a "you're logged in" interstitial the reader
+      // would have to click past themselves.
+      router.replace("/library");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
-    } finally {
       setSubmitting(false);
     }
-  }
-
-  if (success) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.3, ease: "easeOut" }}
-        role="status"
-        className="flex flex-col items-center gap-2 py-4 text-center"
-      >
-        <CircleCheck size={32} className="text-accent" strokeWidth={1.75} />
-        <p className="text-sm text-foreground">You&apos;re logged in.</p>
-      </motion.div>
-    );
   }
 
   return (

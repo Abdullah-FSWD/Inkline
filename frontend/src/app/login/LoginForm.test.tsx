@@ -14,11 +14,17 @@ vi.mock("@/lib/auth-context", () => ({
   useAuth: vi.fn(),
 }));
 
+const mockedReplace = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mockedReplace }),
+}));
+
 const mockedLogin = vi.mocked(login);
 const mockedUseAuth = vi.mocked(useAuth);
 
 beforeEach(() => {
   mockedLogin.mockReset();
+  mockedReplace.mockReset();
   mockedUseAuth.mockReturnValue({
     user: null,
     loading: false,
@@ -37,12 +43,12 @@ async function fillAndSubmit(email: string, password: string) {
 }
 
 describe("LoginForm", () => {
-  it("shows a success message after a successful login", async () => {
+  it("redirects to the library after a successful login, instead of showing an interstitial", async () => {
     mockedLogin.mockResolvedValueOnce({ id: "1", email: "a@example.com" });
     await fillAndSubmit("a@example.com", "correct-horse");
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/logged in/i);
     expect(mockedLogin).toHaveBeenCalledWith("a@example.com", "correct-horse");
+    expect(mockedReplace).toHaveBeenCalledWith("/library");
   });
 
   it("requires both fields before calling the API", async () => {
