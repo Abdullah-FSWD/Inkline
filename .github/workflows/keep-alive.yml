@@ -1,0 +1,15 @@
+name: Keep backend alive
+
+on:
+  schedule:
+    # Every 10 minutes - Render's free tier spins a web service down after ~15 min idle.
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          curl -fsS "${{ secrets.BACKEND_URL }}/health"
